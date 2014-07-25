@@ -12,11 +12,11 @@ VTK_DYN_LIBS = -lvtkImagingCore-6.2 -lvtkFiltersSources-6.2 -lvtkFiltersCore-6.2
 
 VTK_STA_LIBS = $(VTK_LIBS_DIR)libvtkImagingCore-6.2.a $(VTK_LIBS_DIR)libvtkFiltersSources-6.2.a $(VTK_LIBS_DIR)libvtkFiltersCore-6.2.a $(VTK_LIBS_DIR)libvtkImagingGeneral-6.2.a $(VTK_LIBS_DIR)libvtkCommonDataModel-6.2.a $(VTK_LIBS_DIR)libvtkCommonTransforms-6.2.a $(VTK_LIBS_DIR)libvtkCommonCore-6.2.a $(VTK_LIBS_DIR)libvtkIOLegacy-6.2.a $(VTK_LIBS_DIR)libvtkCommonExecutionModel-6.2.a $(VTK_LIBS_DIR)libvtkIOCore-6.2.a $(VTK_LIBS_DIR)libvtkIOImage-6.2.a $(VTK_LIBS_DIR)libvtkCommonSystem-6.2.a $(VTK_LIBS_DIR)libvtksys-6.2.a $(VTK_LIBS_DIR)libvtkImagingStencil-6.2.a $(VTK_LIBS_DIR)libvtkCommonMisc-6.2.a $(VTK_LIBS_DIR)libvtkCommonTransforms-6.2.a $(VTK_LIBS_DIR)libvtkCommonMath-6.2.a $(VTK_LIBS_DIR)libvtktiff-6.2.a $(VTK_LIBS_DIR)libvtkpng-6.2.a $(VTK_LIBS_DIR)libvtkjpeg-6.2.a $(VTK_LIBS_DIR)libvtkzlib-6.2.a $(VTK_LIBS_DIR)libvtkRenderingFreeType-6.2.a $(VTK_LIBS_DIR)libvtkFiltersGeneral-6.2.a
 
-debug: PlaMod.cpp
-	@$(CC) $(DFLAG) $(CFLAGS) PlaMod.cpp -o PlaMod $(VTK_DYN_LIBS) -I$(VTK_INCLUDE_DIR)
+debug: MitoPlanar.cpp
+	@$(CC) $(DFLAG) $(CFLAGS) MitoPlanar.cpp -o MitoPlanar $(VTK_DYN_LIBS) -I$(VTK_INCLUDE_DIR)
 
 dynamic: MitoGraph.cpp
-	@$(CC) $(CFLAGS) PlaMod.cpp -o PlaMod $(VTK_DYN_LIBS) -I$(VTK_INCLUDE_DIR)
+	@$(CC) $(CFLAGS) MitoPlanar.cpp -o MitoPlanar $(VTK_DYN_LIBS) -I$(VTK_INCLUDE_DIR)
 
 static:
-	@$(CC) $(CFLAGS) PlaMod.cpp -o PlaMod $(VTK_STA_LIBS) -I$(VTK_INCLUDE_DIR)
+	@$(CC) $(CFLAGS) MitoPlanar.cpp -o MitoPlanar $(VTK_STA_LIBS) -I$(VTK_INCLUDE_DIR)

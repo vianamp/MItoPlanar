@@ -144,6 +144,11 @@ double _Graph::GetEdgeLength(int i, int j) {
 
 void GetInstanceOfRandomPlanarGraph_Edge(_Graph *Graph, int E) {
 
+	#ifdef DEBUG
+		printf("Random Model Constrained by Total Length...\n");
+		printf("\tAllocating adjacency matrix...\n");
+	#endif
+
 	long int k;
 	int q, i, j, ne = 0;
 	int N = Graph -> N;
@@ -152,6 +157,11 @@ void GetInstanceOfRandomPlanarGraph_Edge(_Graph *Graph, int E) {
 	ADJ -> SetNumberOfTuples(N*N);
 	ADJ -> FillComponent(0,0);
 	for (i=N;i--;) ADJ->SetTuple1(i+i*N,1);
+
+	#ifdef DEBUG
+		printf("\tAllocated!\n");
+	#endif
+
 
 	Graph -> LEdges.clear();
 
@@ -184,12 +194,22 @@ void GetInstanceOfRandomPlanarGraph_Edge(_Graph *Graph, int E) {
 			}
 		}
 	}
+
+	#ifdef DEBUG
+		printf("\tModel Complete!\n");
+	#endif
+
 }
 
 void GetInstanceOfRandomPlanarGraph_Length(_Graph *Graph, double L) {
 
+	#ifdef DEBUG
+		printf("Random Model Constrained by Total Length...\n");
+		printf("\tAllocating adjacency matrix...\n");
+	#endif
+
 	long int k;
-	int q, i, j, ne = 0;
+	int q, i, j;
 	int N = Graph -> N;
 	double total_length;
 	vtkSmartPointer<vtkBitArray> ADJ = vtkSmartPointer<vtkBitArray>::New();
@@ -197,6 +217,10 @@ void GetInstanceOfRandomPlanarGraph_Length(_Graph *Graph, double L) {
 	ADJ -> SetNumberOfTuples(N*N);
 	ADJ -> FillComponent(0,0);
 	for (i=N;i--;) ADJ->SetTuple1(i+i*N,1);
+
+	#ifdef DEBUG
+		printf("\tAllocated!\n");
+	#endif
 
 	Graph -> LEdges.clear();
 
@@ -212,7 +236,6 @@ void GetInstanceOfRandomPlanarGraph_Length(_Graph *Graph, double L) {
 					Graph->LEdges.push_back(edge);
 					_edge edge_m = {i+_mirror(q)*Graph->N,j,1};
 					Graph->LEdges.push_back(edge_m);
-					ne++;
 					ADJ -> SetTuple1(k,1);
 					ADJ -> SetTuple1(k,1);
 					total_length += Graph -> GetEdgeLength(i,j+q*Graph->N);
@@ -223,7 +246,6 @@ void GetInstanceOfRandomPlanarGraph_Length(_Graph *Graph, double L) {
 			 			_edge edge = {i+q*Graph->N,j+q*Graph->N,0};
 			 			Graph->LEdges.push_back(edge);
 			 		}
-			 		ne++;
 					ADJ -> SetTuple1(k,1);
 					ADJ -> SetTuple1(k,1);
 					total_length += Graph -> GetEdgeLength(i,j);
@@ -231,9 +253,18 @@ void GetInstanceOfRandomPlanarGraph_Length(_Graph *Graph, double L) {
 			}
 		}
 	}
+
+	#ifdef DEBUG
+		printf("\tModel Complete!\n");
+	#endif
+
 }
 
 _Graph LoadShallowCopy(const char FilePrefix[], int *NEdges, double *Length) {
+
+	#ifdef DEBUG
+		printf("Copying Coordinates From %s.coo\n",FilePrefix);
+	#endif
 
 	_Graph Graph;
     char _path[128];
@@ -250,6 +281,12 @@ _Graph LoadShallowCopy(const char FilePrefix[], int *NEdges, double *Length) {
 	}
 	fclose(fg);
 
+	#ifdef DEBUG
+		printf("\t#Nodes = %d\n",N);
+		printf("\t#Edges = %d\n",E);
+		printf("\t#Length = %1.3f\n",L);
+	#endif
+
 	while (fscanf(fc,"%f %f %f",&x,&y,&z)!=EOF) {
 		x += _eps * (1.0*rand())/RAND_MAX;
 		y += _eps * (1.0*rand())/RAND_MAX;
@@ -259,8 +296,12 @@ _Graph LoadShallowCopy(const char FilePrefix[], int *NEdges, double *Length) {
 	*Length = L;
 	*NEdges = E;
 	Graph.CreateVirtualNodes();
-	return Graph;
 
+	#ifdef DEBUG
+		printf("\tCopy Complete!\n");
+	#endif
+
+	return Graph;
 }
 
 int main() {
@@ -275,7 +316,7 @@ int main() {
 	GetInstanceOfRandomPlanarGraph_Edge(&Graph,E);
 	Graph.SavePolyData("Net1.vtk");
 
-	GetInstanceOfRandomPlanarGraph_Edge(&Graph,E);
+	GetInstanceOfRandomPlanarGraph_Length(&Graph,20);
 	Graph.SavePolyData("Net2.vtk");
 
 	return 0;
