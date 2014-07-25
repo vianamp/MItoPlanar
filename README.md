@@ -1,4 +1,4 @@
-MItoPlanar
-==========
+MitoGraph
+=========
 
-Planar graph model for mitochondrial network
+Software for Quantifying Mitochondrial Content in Live Cells
