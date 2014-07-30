@@ -1,11 +1,10 @@
 #include <list>
-#include <omp.h>
 #include <cmath>
 #include <ctime>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <igraph/igraph.h>
+#include <unistd.h>
 #include <vtkSmartPointer.h>
 #include <vtkPoints.h>
 #include <vtkPolyData.h>
@@ -17,6 +16,20 @@
 #define _max(a,b) ((a>b)?a:b)
 #define _eps 1E-6
 
+/* =================================================================
+   CLASSES
+   =================================================================*/
+
+struct _clock{
+	long long int t, nreset;
+	_clock() {
+		t = nreset = 0;
+	}
+	void reset() {
+		t = nreset = 0;	
+	}
+};
+
 struct _node{
 	double x;
 	double y;
@@ -27,7 +40,41 @@ struct _edge{
 	int j;
 	int type;
 	double length;
+	bool operator == (const _edge &edge) {
+		return ((i==edge.i)&&(j==edge.j))||((i==edge.j)&&(j==edge.i));
+	};
 };
+
+class _Graph{
+private:
+public:
+	int N;
+	float Lx, Ly;
+	std::list<_edge> Edges;
+	std::vector<_node> Nodes;
+	_clock clock;
+
+	_Graph() {
+		N = 0;
+		Lx = Ly = 0.0;
+	};
+
+	void SavePolyData(const char FileName[]);
+	void SaveGNET(const char FileName[]);
+	void MakeShallowCopy(const char FilePrefix[], int *NEdges, double *Length);
+
+	double GetEdgeLength(int i, int j);
+	bool IsPlanarEdge(int i, int j);
+	void CreateVirtualNodes();
+	int GetClosestVirtualNode(int i, int j);
+	void ClipNetwork();
+	void DeleteRandomEdge(std::vector<int> V, vtkBitArray *ADJ);
+	
+};
+
+/* =================================================================
+   AUXILIAR FUNCTIONS
+   =================================================================*/
 
 int _mirror(int q) {
 	switch (q) {
@@ -55,36 +102,108 @@ bool SegmentsContainPoint(double ri[3], double rj[3], double ru[3], double rv[3]
 	return false;
 }
 
-class _Graph{
-private:
-public:
-	int N;
-	double xmin, ymin, xmax, ymax;
-	std::vector<_node> Nodes;
-	std::list<_edge> Edges;
-	_Graph() {
-		N = 0;
-	};
-	void CreateVirtualNodes();
-	bool IsPlanarEdge(int i, int j);
-	void SavePolyData(const char FileName[]);
-	int GetClosestVirtualNode(int i, int j);
-	double GetEdgeLength(int i, int j);
-	void MakeShallowCopy(const char FilePrefix[], int *NEdges, double *Length);
-	void ClipNetwork();
-	void SaveGNET(const char FileName[]);
-};
+/* =================================================================
+   I/O METHODS
+   =================================================================*/
 
-void _Graph::CreateVirtualNodes() {
-	double r[3], x, y;
-	N = Nodes.size();
-	double Q[4][2] = {{0,ymax},{xmax,0},{0,-ymax},{-xmax,0}};
-	for (int q = 1; q <= 4; q++) {
-		for (int i = 0; i < N; i++) {
-			_node node = {Nodes[i].x+Q[q-1][0],Nodes[i].y+Q[q-1][1]};
-			Nodes.push_back(node);
-		}
+void _Graph::SavePolyData(const char FileName[]) {
+	printf("Saving polydata...\n");
+
+	vtkSmartPointer<vtkPoints> Points = vtkSmartPointer<vtkPoints>::New();
+	for (int i=0; i < 5*N; i++) {
+		Points -> InsertNextPoint(Nodes[i].x,Nodes[i].y,0.0);
 	}
+
+	vtkSmartPointer<vtkCellArray> Cells = vtkSmartPointer<vtkCellArray>::New();
+	for (std::list<_edge>::iterator it = Edges.begin(), end = Edges.end(); it != end; ++it) {
+		Cells -> InsertNextCell(2);
+		Cells -> InsertCellPoint((*it).i);
+		Cells -> InsertCellPoint((*it).j);
+	}
+
+	vtkSmartPointer<vtkPolyData> Net = vtkSmartPointer<vtkPolyData>::New();
+	Net -> SetPoints(Points);
+	Net -> SetLines(Cells);
+
+	vtkSmartPointer<vtkPolyDataWriter> PolyWriter = vtkSmartPointer<vtkPolyDataWriter>::New();
+	PolyWriter -> SetFileName(FileName);
+	PolyWriter -> SetInputData(Net);
+	PolyWriter -> Write();
+	printf("\tDone!\n");
+}
+
+void _Graph::SaveGNET(const char FileName[]) {
+	_edge edge;
+	FILE *f = fopen(FileName,"w");
+	fprintf(f,"%d\n",N);
+	for (std::list<_edge>::iterator it = Edges.begin(), end = Edges.end(); it != end; ++it) {
+		edge = *it;
+		fprintf(f,"%d\t%d\t%1.6f\n",edge.i,edge.j,edge.length);
+	}
+	fclose(f);
+}
+
+void _Graph::MakeShallowCopy(const char FilePrefix[], int *NEdges, double *Length) {
+
+	#ifdef DEBUG
+		printf("Copying Coordinates From %s.coo2d\n",FilePrefix);
+	#endif
+
+	char text[128], _path[128];
+	int i, j, E = 0;
+	float x, y, length, L = 0.0;
+	sprintf(_path,"%s.gnet",FilePrefix);
+	FILE *fg = fopen(_path,"r");
+	sprintf(_path,"%s.coo2d",FilePrefix);
+	FILE *fc = fopen(_path,"r");
+	fscanf(fg,"%d",&N);
+	while (fscanf(fg,"%d %d %f",&i,&j,&length)!=EOF) {
+		E++;
+		L+=length;
+	}
+	fclose(fg);
+
+	Nodes.clear();
+
+	#ifdef DEBUG
+		printf("\t#Nodes = %d\n",N);
+		printf("\t#Edges = %d\n",E);
+		printf("\t#Length = %1.3f\n",L);
+	#endif
+
+	fscanf(fc,"%s",text);
+	fscanf(fc,"%f",&Lx);
+	fscanf(fc,"%f",&Ly);
+	fscanf(fc,"%s",text);
+
+	while (fscanf(fc,"%f %f",&x,&y)!=EOF) {
+		x += _eps * (1.0*rand())/RAND_MAX;
+		y += _eps * (1.0*rand())/RAND_MAX;
+		_node node = {x,y};
+		Nodes.push_back(node);
+	}
+	fclose(fc);
+	*Length = L;
+	*NEdges = E;
+
+
+	#ifdef DEBUG
+		printf("\tLx = %1.3f, Ly = %1.3f\n",Lx,Ly);
+		printf("\tCopy Complete!\n");
+	#endif
+}
+
+/* =================================================================
+   AUXILIAR METHODS
+   =================================================================*/
+
+double _Graph::GetEdgeLength(int i, int j) {
+	double ri[3], rj[3];
+	ri[0] = Nodes[i].x;
+	ri[1] = Nodes[i].y;
+	rj[0] = Nodes[j].x;
+	rj[1] = Nodes[j].y;
+	return sqrt(pow(ri[0]-rj[0],2)+pow(ri[1]-rj[1],2));
 }
 
 bool _Graph::IsPlanarEdge(int i, int j) {
@@ -99,17 +218,28 @@ bool _Graph::IsPlanarEdge(int i, int j) {
 
 		Det = ( rj[1] - ri[1] ) * ( rv[0] - ru[0] ) - ( rv[1] - ru[1] ) * ( rj[0] - ri[0] );
 
-	    if(fabs(Det) > _eps) {
-	    	Q =     ri[0] * ( rv[1] - ru[1] ) + ru[0] * ( ri[1] - rv[1] ) + rv[0] * ( ru[1] - ri[1] );
+		if(fabs(Det) > _eps) {
+			Q =  ri[0] * ( rv[1] - ru[1] ) + ru[0] * ( ri[1] - rv[1] ) + rv[0] * ( ru[1] - ri[1] );
 			xc = ri[0] + (Q / Det) * ( rj[0] - ri[0] );
 			yc = ri[1] + (Q / Det) * ( rj[1] - ri[1] );
 
 			if (SegmentsContainPoint(ri,rj,ru,rv,xc,yc)) return false;
-        }
-    }
+		}
+	}
 	return true;
 }
 
+void _Graph::CreateVirtualNodes() {
+	double r[3], x, y;
+	N = Nodes.size();
+	double Q[4][2] = {{0,Ly},{Lx,0},{0,-Ly},{-Lx,0}};
+	for (int q = 1; q <= 4; q++) {
+		for (int i = 0; i < N; i++) {
+			_node node = {Nodes[i].x+Q[q-1][0],Nodes[i].y+Q[q-1][1]};
+			Nodes.push_back(node);
+		}
+	}
+}
 
 int _Graph::GetClosestVirtualNode(int i, int j) {
 	int qo;
@@ -128,73 +258,114 @@ int _Graph::GetClosestVirtualNode(int i, int j) {
 	return qo;
 }
 
-double _Graph::GetEdgeLength(int i, int j) {
-	double ri[3], rj[3];
-	ri[0] = Nodes[i].x;
-	ri[1] = Nodes[i].y;
-	rj[0] = Nodes[j].x;
-	rj[1] = Nodes[j].y;
-	return sqrt(pow(ri[0]-rj[0],2)+pow(ri[1]-rj[1],2));
-}
-
-void _Graph::MakeShallowCopy(const char FilePrefix[], int *NEdges, double *Length) {
+void _Graph::ClipNetwork() {
 
 	#ifdef DEBUG
-		printf("Copying Coordinates From %s.coo\n",FilePrefix);
+		printf("Clipping network...\n");
 	#endif
 
-    char _path[128];
-	int i, j, E = 0;
-	float x, y, z, length, L = 0.0;
-    sprintf(_path,"%s.gnet",FilePrefix);
-	FILE *fg = fopen(_path,"r");
-    sprintf(_path,"%s.coo",FilePrefix);
-	FILE *fc = fopen(_path,"r");
-	fscanf(fg,"%d",&N);
-	while (fscanf(fg,"%d %d %f",&i,&j,&length)!=EOF) {
-		E++;
-		L+=length;
+	int i, j;
+	double d;
+	_edge edge;
+	for (std::list<_edge>::iterator it = Edges.begin(), end = Edges.end(); it != end; ++it) {
+		edge = *it;
+		i = edge.i;
+		j = edge.j;
+		if ( edge.type ) {
+			if ( edge.type == 5 ) {
+				(*it).j = j-(j/N)*N;
+				(*it).type = 0;
+				(*it).length = sqrt(pow(Nodes[i].x-Nodes[j].x,2)+pow(Nodes[i].y-Nodes[j].y,2));
+			} else Edges.erase(it--);
+		} else {
+			d = sqrt(pow(Nodes[i].x-Nodes[j].x,2)+pow(Nodes[i].y-Nodes[j].y,2));
+			(*it).length = d;
+		}
 	}
-	fclose(fg);
 
-	Nodes.clear();
+	for (i=N;i<5*N;i++) Nodes.pop_back();
 
 	#ifdef DEBUG
-		printf("\t#Nodes = %d\n",N);
-		printf("\t#Edges = %d\n",E);
-		printf("\t#Length = %1.3f\n",L);
-	#endif
-
-	xmax = ymax = 0.0;
-	xmin = ymin = 1E6;
-	while (fscanf(fc,"%f %f %f",&x,&y,&z)!=EOF) {
-		x += _eps * (1.0*rand())/RAND_MAX;
-		y += _eps * (1.0*rand())/RAND_MAX;
-		_node node = {x,y};
-		Nodes.push_back(node);
-		xmin = (x<xmin) ? x : xmin;
-		xmax = (x>xmax) ? x : xmax;
-		ymin = (y<ymin) ? y : ymin;
-		ymax = (y>xmax) ? y : xmax;
-	}
-	fclose(fc);
-	*Length = L;
-	*NEdges = E;
-
-	#ifdef DEBUG
-		printf("\t%1.3f<=x<=%1.3f\n",xmin,xmax);
-		printf("\t%1.3f<=y<=%1.3f\n",ymin,ymax);
-		printf("\tCopy Complete!\n");
+		printf("\tDone!\n");
 	#endif
 }
 
+void _Graph::DeleteRandomEdge(std::vector<int> V, vtkBitArray *ADJ) {
+
+	printf("Deleteting edge...\n");
+
+	//for (std::list<_edge>::iterator ito = Edges.begin(), end = Edges.end(); ito != end; ++ito) {
+	//	printf("%d\t%d\n",(*ito).i,(*ito).j);
+	//}	
+
+	int q, i, j, io, jo;
+	std::list<_edge>::iterator it = Edges.begin();
+	std::advance(it,rand()%Edges.size());
+	_edge edge = *it;
+
+	i = edge.i;
+	j = edge.j;
+
+	if (edge.type < 5) {
+
+		i -= (i/N)*N;
+		j -= (j/N)*N;
+
+		io = i - (i/N)*N;
+		jo = j - (j/N)*N;
+
+		for (q = 0; q < 5; q++) {
+			edge.i = i + q*N;
+			edge.j = j + q*N;
+			it = std::find(Edges.begin(),Edges.end(),edge);
+			Edges.erase(it);
+		}
+
+	} else if (edge.type == 5) {
+
+		q = j/N;
+
+		io = i;
+		jo = j - (j/N)*N;
+		Edges.erase(it);
+		edge.i = i+_mirror(j/N)*N;
+		edge.j = j - (j/N)*N;
+		it = std::find(Edges.begin(),Edges.end(),edge);
+		Edges.erase(it);
+
+	} else {
+
+		io = i - (i/N)*N;
+		jo = j;
+		Edges.erase(it);
+		edge.i = i - (i/N)*N;
+ 		edge.j = j + _mirror(i/N)*N;
+		it = std::find(Edges.begin(),Edges.end(),edge);
+		Edges.erase(it);
+
+	}
+
+	printf("\t\t>>%d\t%d\n",io,jo);
+
+	// V.push_back(io);
+	// V.push_back(jo);
+	// ADJ -> SetTuple1(io+jo*N,0);
+	// ADJ -> SetTuple1(io+jo*N,0);
+
+}
+
+/* =================================================================
+   NETWORK MODEL ROUTINES
+   =================================================================*/
 
 void GetInstanceOfRandomPlanarGraph_Edge(_Graph *Graph, int E) {
 
 	#ifdef DEBUG
-		printf("Random Model Constrained by Total Length...\n");
+		printf("Random Model Constrained by Number of Edges...\n");
 		printf("\tAllocating adjacency matrix...\n");
 	#endif
+
+	Graph -> CreateVirtualNodes();
 
 	long int k;
 	int q, i, j, ne = 0;
@@ -242,6 +413,8 @@ void GetInstanceOfRandomPlanarGraph_Edge(_Graph *Graph, int E) {
 		}
 	}
 
+	Graph -> ClipNetwork();
+
 	#ifdef DEBUG
 		printf("\tModel Complete!\n");
 	#endif
@@ -254,6 +427,8 @@ void GetInstanceOfRandomPlanarGraph_Length(_Graph *Graph, double L) {
 		printf("Random Model Constrained by Total Length...\n");
 		printf("\tAllocating adjacency matrix...\n");
 	#endif
+
+	Graph -> CreateVirtualNodes();
 
 	long int k;
 	int q, i, j;
@@ -301,94 +476,218 @@ void GetInstanceOfRandomPlanarGraph_Length(_Graph *Graph, double L) {
 		}
 	}
 
+	Graph -> ClipNetwork();
+
 	#ifdef DEBUG
 		printf("\tModel Complete!\n");
 	#endif
 
 }
 
-void _Graph::ClipNetwork() {
+void GetInstanceOfRandomPlanarGraph_Pk1(_Graph *Graph, double pk1) {
+
+	#ifdef DEBUG
+		printf("Random Model Constrained by Degree Distribution...\n");
+		printf("\tCreating Degree Distribution...\n");
+	#endif
+
+	long int k;
+	int q, i, j, pi, pj;
+	int N = Graph -> N;
+	int nk1 = (int)(pk1*N);
+	int nk3 = N - nk1;
+
+	std::vector<int> K (nk1,1);
+	K.insert(K.begin(),nk3,3);
+
+	std::vector<int> ID;
+	for (i=0;i<N;i++) ID.push_back(i);
+	std::random_shuffle(ID.begin(),ID.end());
+
+	std::vector<int> V;
+	for (i=0;i<N;i++) V.insert(V.begin(),K[i],ID[i]);
+
+	K.clear();
+	ID.clear();
+
+	#ifdef DEBUG
+		printf("\tDone!\n");
+		printf("\tAllocating Adjacency Matrix...\n");
+	#endif
+	
+	Graph -> CreateVirtualNodes();
+	
+	bool _connected;
+	double total_length;
+	vtkSmartPointer<vtkBitArray> ADJ = vtkSmartPointer<vtkBitArray>::New();
+	ADJ -> SetNumberOfComponents(1);
+	ADJ -> SetNumberOfTuples(N*N);
+	ADJ -> FillComponent(0,0);
+	for (i=N;i--;) ADJ->SetTuple1(i+i*N,1);
+
+	#ifdef DEBUG
+		printf("\tAllocated!\n");
+	#endif
+
+	Graph -> Edges.clear();
+	Graph -> clock.reset();
+
+	while (V.size() > 1) {
+		pi = rand()%V.size();
+		pj = rand()%V.size();
+		i = V[pi];
+		j = V[pj];
+		k = i + j *N;
+		printf("[A]\n");
+		//printf("%d\t%d\n",i,j);
+		_connected = 0;
+		if (!ADJ->GetTuple1(k)) {
+			q = Graph -> GetClosestVirtualNode(i,j);
+			if (q) {
+				printf("[B1]\n");
+				if (Graph->IsPlanarEdge(i,j+q*Graph->N) && Graph->IsPlanarEdge(i+_mirror(q)*Graph->N,j)) {
+					_edge edge = {i,j+q*Graph->N,5,0.0};
+					Graph->Edges.push_back(edge);
+					_edge edge_m = {i+_mirror(q)*Graph->N,j,6,0.0};
+					Graph->Edges.push_back(edge_m);
+					ADJ -> SetTuple1(k,1);
+					ADJ -> SetTuple1(k,1);
+					total_length += Graph -> GetEdgeLength(i,j+q*Graph->N);
+					_connected = 1;
+				}
+			} else {
+				printf("[B2]\n");
+				if (Graph->IsPlanarEdge(i,j)) {
+					for (q = 0; q < 5; q++) {
+			 			_edge edge = {i+q*Graph->N,j+q*Graph->N,q,0.0};
+			 			Graph->Edges.push_back(edge);
+			 		}
+					ADJ -> SetTuple1(k,1);
+					ADJ -> SetTuple1(k,1);
+					total_length += Graph -> GetEdgeLength(i,j);
+					_connected = 1;
+				}
+			}
+			if (_connected) {
+				printf("[C]\n");
+				std::swap(V[pi],V.back());
+				V.pop_back();
+				std::swap(V[pj],V.back());
+				V.pop_back();
+			} else {
+				printf("[D]\n");
+				Graph -> clock.t++;
+				if (Graph -> clock.t > N*N) {
+					Graph -> clock.t = 0;
+					Graph -> clock.nreset++;
+				}
+				if (Graph -> clock.nreset > log(N)) {
+					Graph -> clock.reset();
+					Graph -> DeleteRandomEdge(V,ADJ);
+
+					//V.clear();
+				}
+			}
+		}
+		if (V.size()==2&&V[0]==V[1]) {
+			printf("[E]\n");
+			Graph -> DeleteRandomEdge(V,ADJ);
+		}
+		printf("%lu\n",Graph->Edges.size());
+
+	}
+
+	if (V.size()>0) {
+		for (i=0;i<V.size();i++) printf("%0.2d ",V[i]); printf("\n");
+	}
+
+	//Graph -> ClipNetwork();
+
+	#ifdef DEBUG
+		printf("\tModel Complete!\n");
+	#endif
+
+
+}
+
+void GetInstanceOfTestModel(_Graph *Graph) {
+
+	#ifdef DEBUG
+		printf("Random Model Constrained by Degree Distribution...\n");
+		printf("\tCreating Degree Distribution...\n");
+	#endif
+
 	int i, j;
-	double d;
-	_edge edge;
-	for (std::list<_edge>::iterator it = Edges.begin(), end = Edges.end(); it != end; ++it) {
-		edge = *it;
-		i = edge.i;
-		j = edge.j;
-		if ( edge.type ) {
-			if ( edge.type == 5 ) {
-				(*it).j = j-(j/N)*N;
-				(*it).type = 0;
-				(*it).length = sqrt(pow(Nodes[i].x-Nodes[j].x,2)+pow(Nodes[i].y-Nodes[j].y,2));
-			} else Edges.erase(it--);
-		} else {
-			d = sqrt(pow(Nodes[i].x-Nodes[j].x,2)+pow(Nodes[i].y-Nodes[j].y,2));
-			(*it).length = d;
+	for (int e=0;e<20000;e++) {
+		i = rand() % Graph -> N;
+		j = rand() % Graph -> N;
+		for (int q=0;q<5;q++) {
+			_edge edge = {i+q*Graph->N,j+q*Graph->N,q,0.0};
+			Graph->Edges.push_back(edge);
 		}
 	}
-	for (i=N;i<5*N;i++) Nodes.erase(Nodes.end());
-}
 
-void _Graph::SavePolyData(const char FileName[]) {
-	printf("Saving polydata...\n");
-
-	vtkSmartPointer<vtkPoints> Points = vtkSmartPointer<vtkPoints>::New();
-	for (int i=0; i < 5*N; i++) {
-		Points -> InsertNextPoint(Nodes[i].x,Nodes[i].y,0.0);
+	std::vector<int> V;
+	for (int e=0;e<10000;e++) {
+		printf("%d\n",e);
+		Graph->DeleteRandomEdge(V,NULL);
 	}
 
-	vtkSmartPointer<vtkCellArray> Cells = vtkSmartPointer<vtkCellArray>::New();
-	for (std::list<_edge>::iterator it = Edges.begin(), end = Edges.end(); it != end; ++it) {
-		Cells -> InsertNextCell(2);
-		Cells -> InsertCellPoint((*it).i);
-		Cells -> InsertCellPoint((*it).j);
-	}
+	#ifdef DEBUG
+		printf("\tModel Complete!\n");
+	#endif
 
-	vtkSmartPointer<vtkPolyData> Net = vtkSmartPointer<vtkPolyData>::New();
-	Net -> SetPoints(Points);
-	Net -> SetLines(Cells);
 
-	vtkSmartPointer<vtkPolyDataWriter> PolyWriter = vtkSmartPointer<vtkPolyDataWriter>::New();
-	PolyWriter -> SetFileName(FileName);
-	PolyWriter -> SetInputData(Net);
-	PolyWriter -> Write();
-	printf("\tDone!\n");
 }
 
-void _Graph::SaveGNET(const char FileName[]) {
-	_edge edge;
-	FILE *f = fopen(FileName,"w");
-	fprintf(f,"%d\n",N);
-	for (std::list<_edge>::iterator it = Edges.begin(), end = Edges.end(); it != end; ++it) {
-		edge = *it;
-		fprintf(f,"%d\t%d\t%1.6f\n",edge.i,edge.j,edge.length);
-	}
-	fclose(f);
-}
+/* =================================================================
+   MAIN
+   =================================================================*/
 
-int main() {
+
+int main(int argc, char *argv[]) {     
 
 	srand(getpid());
+	char _RootFolder[256] = {""};
+	//sprintf(_RootFolder,"");
+
+	for (int i = 0; i < argc; i++) {
+		if (!strcmp(argv[i],"-path")) {
+			sprintf(_RootFolder,"%s//",argv[i+1]);
+		}
+	}
+
+	// Generating list of files to run
+	char _cmd[256];
+	sprintf(_cmd,"ls %s*.gnet | sed -e 's/.gnet//' > %smitoplanar.files",_RootFolder,_RootFolder);
+	system(_cmd);
 
 	int E;
 	double L;
-	char OriginalName[128], ModelName[128];
-	sprintf(OriginalName,"101010_1");
 
-	_Graph Graph;
-	Graph.MakeShallowCopy(OriginalName,&E,&L);
+	char _GNETFile[256];
+	char _GNETList[256];
+	char ModelName[256];
+	sprintf(_GNETList,"%smitoplanar.files",_RootFolder);
+	
+	FILE *f = fopen(_GNETList,"r");
+	while (fgets(_GNETFile,256, f) != NULL) {
+		_GNETFile[strcspn(_GNETFile, "\n" )] = '\0';
 
-	for (int net = 0; net <  5; net++) {
+		_Graph Graph;
+		Graph.MakeShallowCopy(_GNETFile,&E,&L);
 
-		Graph.CreateVirtualNodes();
-		GetInstanceOfRandomPlanarGraph_Edge(&Graph,E);
-		Graph.ClipNetwork();
+		for (int net = 0; net <  1; net++) {
 
-		sprintf(ModelName,"%s-%03d.vtk",OriginalName,net);
-		Graph.SavePolyData(ModelName);
+			GetInstanceOfTestModel(&Graph);
 
-		sprintf(ModelName,"%s-%03d.gnet",OriginalName,net);
-		Graph.SaveGNET(ModelName);
+			sprintf(ModelName,"%s-EDG-%03d.vtk",_GNETFile,net);
+			Graph.SavePolyData(ModelName);
+
+			//sprintf(ModelName,"%s-EDG-%03d.gnet",_GNETFile,net);
+			//Graph.SaveGNET(ModelName);
+
+		}
 
 	}
 	return 0;
