@@ -15,7 +15,7 @@ VTK_STA_LIBS = $(VTK_LIBS_DIR)libvtkImagingCore-6.2.a $(VTK_LIBS_DIR)libvtkFilte
 debug: MitoPlanar.cpp
 	@$(CC) $(DFLAG) $(CFLAGS) MitoPlanar.cpp -o MitoPlanar $(VTK_DYN_LIBS) -I$(VTK_INCLUDE_DIR)
 
-dynamic: MitoGraph.cpp
+dynamic: MitoPlanar.cpp
 	@$(CC) $(CFLAGS) MitoPlanar.cpp -o MitoPlanar $(VTK_DYN_LIBS) -I$(VTK_INCLUDE_DIR)
 
 static:

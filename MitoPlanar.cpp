@@ -68,7 +68,7 @@ public:
 	void CreateVirtualNodes();
 	int GetClosestVirtualNode(int i, int j);
 	void ClipNetwork();
-	void DeleteRandomEdge(std::vector<int> V, vtkBitArray *ADJ);
+	void DeleteRandomEdge(int *, int *j);
 	
 };
 
@@ -290,15 +290,13 @@ void _Graph::ClipNetwork() {
 	#endif
 }
 
-void _Graph::DeleteRandomEdge(std::vector<int> V, vtkBitArray *ADJ) {
+void _Graph::DeleteRandomEdge(int *io, int *jo) {
 
-	printf("Deleteting edge...\n");
+	#ifdef DEBUG
+		printf("Deleteting edge...\n");
+	#endif
 
-	//for (std::list<_edge>::iterator ito = Edges.begin(), end = Edges.end(); ito != end; ++ito) {
-	//	printf("%d\t%d\n",(*ito).i,(*ito).j);
-	//}	
-
-	int q, i, j, io, jo;
+	int q, i, j;
 	std::list<_edge>::iterator it = Edges.begin();
 	std::advance(it,rand()%Edges.size());
 	_edge edge = *it;
@@ -311,8 +309,8 @@ void _Graph::DeleteRandomEdge(std::vector<int> V, vtkBitArray *ADJ) {
 		i -= (i/N)*N;
 		j -= (j/N)*N;
 
-		io = i - (i/N)*N;
-		jo = j - (j/N)*N;
+		*io = i - (i/N)*N;
+		*jo = j - (j/N)*N;
 
 		for (q = 0; q < 5; q++) {
 			edge.i = i + q*N;
@@ -323,10 +321,10 @@ void _Graph::DeleteRandomEdge(std::vector<int> V, vtkBitArray *ADJ) {
 
 	} else if (edge.type == 5) {
 
-		q = j/N;
+		q = j / N;
 
-		io = i;
-		jo = j - (j/N)*N;
+		*io = i;
+		*jo = j - (j/N)*N;
 		Edges.erase(it);
 		edge.i = i+_mirror(j/N)*N;
 		edge.j = j - (j/N)*N;
@@ -335,8 +333,8 @@ void _Graph::DeleteRandomEdge(std::vector<int> V, vtkBitArray *ADJ) {
 
 	} else {
 
-		io = i - (i/N)*N;
-		jo = j;
+		*io = i - (i/N)*N;
+		*jo = j;
 		Edges.erase(it);
 		edge.i = i - (i/N)*N;
  		edge.j = j + _mirror(i/N)*N;
@@ -344,13 +342,6 @@ void _Graph::DeleteRandomEdge(std::vector<int> V, vtkBitArray *ADJ) {
 		Edges.erase(it);
 
 	}
-
-	printf("\t\t>>%d\t%d\n",io,jo);
-
-	// V.push_back(io);
-	// V.push_back(jo);
-	// ADJ -> SetTuple1(io+jo*N,0);
-	// ADJ -> SetTuple1(io+jo*N,0);
 
 }
 
@@ -368,6 +359,7 @@ void GetInstanceOfRandomPlanarGraph_Edge(_Graph *Graph, int E) {
 	Graph -> CreateVirtualNodes();
 
 	long int k;
+	bool connected;
 	int q, i, j, ne = 0;
 	int N = Graph -> N;
 	vtkSmartPointer<vtkBitArray> ADJ = vtkSmartPointer<vtkBitArray>::New();
@@ -386,8 +378,8 @@ void GetInstanceOfRandomPlanarGraph_Edge(_Graph *Graph, int E) {
 	while (ne < E) {
 		i = rand()%N;
 		j = rand()%N;
-		k = i + j *N;
-		if (!ADJ->GetTuple1(k)) {
+		connected = 0;
+		if (!ADJ->GetTuple1(i+j*N)) {
 			q = Graph -> GetClosestVirtualNode(i,j);
 			if (q) {
 				if (Graph->IsPlanarEdge(i,j+q*Graph->N) && Graph->IsPlanarEdge(i+_mirror(q)*Graph->N,j)) {
@@ -395,9 +387,7 @@ void GetInstanceOfRandomPlanarGraph_Edge(_Graph *Graph, int E) {
 					Graph->Edges.push_back(edge);
 					_edge edge_m = {i+_mirror(q)*Graph->N,j,6,0.0};
 					Graph->Edges.push_back(edge_m);
-					ne++;
-					ADJ -> SetTuple1(k,1);
-					ADJ -> SetTuple1(k,1);
+					connected = 1;
 				}
 			} else {
 				if (Graph->IsPlanarEdge(i,j)) {
@@ -405,11 +395,14 @@ void GetInstanceOfRandomPlanarGraph_Edge(_Graph *Graph, int E) {
 			 			_edge edge = {i+q*Graph->N,j+q*Graph->N,q,0.0};
 			 			Graph->Edges.push_back(edge);
 			 		}
-			 		ne++;
-					ADJ -> SetTuple1(k,1);
-					ADJ -> SetTuple1(k,1);
+			 		connected = 1;
 				}
 			}
+		}
+		if (connected) {
+	 		ne++;
+			ADJ -> SetTuple1(i+j*N,1);
+			ADJ -> SetTuple1(j+i*N,1);
 		}
 	}
 
@@ -432,6 +425,7 @@ void GetInstanceOfRandomPlanarGraph_Length(_Graph *Graph, double L) {
 
 	long int k;
 	int q, i, j;
+	bool connected;
 	int N = Graph -> N;
 	double total_length;
 	vtkSmartPointer<vtkBitArray> ADJ = vtkSmartPointer<vtkBitArray>::New();
@@ -446,11 +440,11 @@ void GetInstanceOfRandomPlanarGraph_Length(_Graph *Graph, double L) {
 
 	Graph -> Edges.clear();
 
+	connected = 0;
 	while (total_length < L) {
 		i = rand()%N;
 		j = rand()%N;
-		k = i + j *N;
-		if (!ADJ->GetTuple1(k)) {
+		if (!ADJ->GetTuple1(i+j*N)) {
 			q = Graph -> GetClosestVirtualNode(i,j);
 			if (q) {
 				if (Graph->IsPlanarEdge(i,j+q*Graph->N) && Graph->IsPlanarEdge(i+_mirror(q)*Graph->N,j)) {
@@ -458,9 +452,7 @@ void GetInstanceOfRandomPlanarGraph_Length(_Graph *Graph, double L) {
 					Graph->Edges.push_back(edge);
 					_edge edge_m = {i+_mirror(q)*Graph->N,j,6,0.0};
 					Graph->Edges.push_back(edge_m);
-					ADJ -> SetTuple1(k,1);
-					ADJ -> SetTuple1(k,1);
-					total_length += Graph -> GetEdgeLength(i,j+q*Graph->N);
+					connected = 1;
 				}
 			} else {
 				if (Graph->IsPlanarEdge(i,j)) {
@@ -468,11 +460,14 @@ void GetInstanceOfRandomPlanarGraph_Length(_Graph *Graph, double L) {
 			 			_edge edge = {i+q*Graph->N,j+q*Graph->N,q,0.0};
 			 			Graph->Edges.push_back(edge);
 			 		}
-					ADJ -> SetTuple1(k,1);
-					ADJ -> SetTuple1(k,1);
-					total_length += Graph -> GetEdgeLength(i,j);
+			 		connected = 1;
 				}
 			}
+		}
+		if (connected) {
+			ADJ -> SetTuple1(i+j*N,1);
+			ADJ -> SetTuple1(j+i*N,1);
+			total_length += Graph -> GetEdgeLength(i,j);			
 		}
 	}
 
@@ -491,7 +486,7 @@ void GetInstanceOfRandomPlanarGraph_Pk1(_Graph *Graph, double pk1) {
 		printf("\tCreating Degree Distribution...\n");
 	#endif
 
-	long int k;
+	long int k1, k2;
 	int q, i, j, pi, pj;
 	int N = Graph -> N;
 	int nk1 = (int)(pk1*N);
@@ -537,71 +532,54 @@ void GetInstanceOfRandomPlanarGraph_Pk1(_Graph *Graph, double pk1) {
 		pj = rand()%V.size();
 		i = V[pi];
 		j = V[pj];
-		k = i + j *N;
-		printf("[A]\n");
-		//printf("%d\t%d\n",i,j);
 		_connected = 0;
-		if (!ADJ->GetTuple1(k)) {
+		if (!ADJ->GetTuple1(i+j*N)) {
 			q = Graph -> GetClosestVirtualNode(i,j);
 			if (q) {
-				printf("[B1]\n");
 				if (Graph->IsPlanarEdge(i,j+q*Graph->N) && Graph->IsPlanarEdge(i+_mirror(q)*Graph->N,j)) {
 					_edge edge = {i,j+q*Graph->N,5,0.0};
 					Graph->Edges.push_back(edge);
 					_edge edge_m = {i+_mirror(q)*Graph->N,j,6,0.0};
 					Graph->Edges.push_back(edge_m);
-					ADJ -> SetTuple1(k,1);
-					ADJ -> SetTuple1(k,1);
-					total_length += Graph -> GetEdgeLength(i,j+q*Graph->N);
 					_connected = 1;
 				}
 			} else {
-				printf("[B2]\n");
 				if (Graph->IsPlanarEdge(i,j)) {
 					for (q = 0; q < 5; q++) {
 			 			_edge edge = {i+q*Graph->N,j+q*Graph->N,q,0.0};
 			 			Graph->Edges.push_back(edge);
 			 		}
-					ADJ -> SetTuple1(k,1);
-					ADJ -> SetTuple1(k,1);
-					total_length += Graph -> GetEdgeLength(i,j);
 					_connected = 1;
 				}
 			}
-			if (_connected) {
-				printf("[C]\n");
-				std::swap(V[pi],V.back());
-				V.pop_back();
-				std::swap(V[pj],V.back());
-				V.pop_back();
-			} else {
-				printf("[D]\n");
-				Graph -> clock.t++;
-				if (Graph -> clock.t > N*N) {
-					Graph -> clock.t = 0;
-					Graph -> clock.nreset++;
-				}
-				if (Graph -> clock.nreset > log(N)) {
-					Graph -> clock.reset();
-					Graph -> DeleteRandomEdge(V,ADJ);
-
-					//V.clear();
-				}
+		}
+		if (_connected) {
+			Graph -> clock.reset();
+			ADJ -> SetTuple1(i+j*N,1);
+			ADJ -> SetTuple1(j+i*N,1);
+			total_length += Graph -> GetEdgeLength(i,j);
+			std::swap(V[pi],V.back());
+			V.pop_back();
+			std::swap(V[pj],V.back());
+			V.pop_back();
+		} else {
+			Graph -> clock.t++;
+			if (Graph -> clock.t > N) {
+				Graph -> clock.t = 0;
+				Graph -> clock.nreset++;
+			}
+			if (Graph -> clock.nreset > log(N)) {
+				Graph -> clock.reset();
+				Graph -> DeleteRandomEdge(&i,&j);
+				ADJ -> SetTuple1(i+j*N,0);
+				ADJ -> SetTuple1(j+i*N,0);
+				V.push_back(i);
+				V.push_back(j);
 			}
 		}
-		if (V.size()==2&&V[0]==V[1]) {
-			printf("[E]\n");
-			Graph -> DeleteRandomEdge(V,ADJ);
-		}
-		printf("%lu\n",Graph->Edges.size());
-
 	}
 
-	if (V.size()>0) {
-		for (i=0;i<V.size();i++) printf("%0.2d ",V[i]); printf("\n");
-	}
-
-	//Graph -> ClipNetwork();
+	Graph -> ClipNetwork();
 
 	#ifdef DEBUG
 		printf("\tModel Complete!\n");
@@ -610,35 +588,6 @@ void GetInstanceOfRandomPlanarGraph_Pk1(_Graph *Graph, double pk1) {
 
 }
 
-void GetInstanceOfTestModel(_Graph *Graph) {
-
-	#ifdef DEBUG
-		printf("Random Model Constrained by Degree Distribution...\n");
-		printf("\tCreating Degree Distribution...\n");
-	#endif
-
-	int i, j;
-	for (int e=0;e<20000;e++) {
-		i = rand() % Graph -> N;
-		j = rand() % Graph -> N;
-		for (int q=0;q<5;q++) {
-			_edge edge = {i+q*Graph->N,j+q*Graph->N,q,0.0};
-			Graph->Edges.push_back(edge);
-		}
-	}
-
-	std::vector<int> V;
-	for (int e=0;e<10000;e++) {
-		printf("%d\n",e);
-		Graph->DeleteRandomEdge(V,NULL);
-	}
-
-	#ifdef DEBUG
-		printf("\tModel Complete!\n");
-	#endif
-
-
-}
 
 /* =================================================================
    MAIN
@@ -677,9 +626,15 @@ int main(int argc, char *argv[]) {
 		_Graph Graph;
 		Graph.MakeShallowCopy(_GNETFile,&E,&L);
 
-		for (int net = 0; net <  1; net++) {
+		for (int net = 0; net <  100; net++) {
 
-			GetInstanceOfTestModel(&Graph);
+			printf("%d\n",net);
+
+			GetInstanceOfRandomPlanarGraph_Edge(&Graph,20);
+
+			//GetInstanceOfRandomPlanarGraph_Length(&Graph,L);
+
+			//GetInstanceOfRandomPlanarGraph_Pk1(&Graph,0.4);
 
 			sprintf(ModelName,"%s-EDG-%03d.vtk",_GNETFile,net);
 			Graph.SavePolyData(ModelName);
