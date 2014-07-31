@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <unistd.h>
+#include <igraph/igraph.h>
 #include <vtkSmartPointer.h>
 #include <vtkPoints.h>
 #include <vtkPolyData.h>
@@ -69,6 +70,7 @@ public:
 	int GetClosestVirtualNode(int i, int j);
 	void ClipNetwork();
 	void DeleteRandomEdge(int *, int *j);
+	void GetProperties(double *M);
 	
 };
 
@@ -110,7 +112,7 @@ void _Graph::SavePolyData(const char FileName[]) {
 	printf("Saving polydata...\n");
 
 	vtkSmartPointer<vtkPoints> Points = vtkSmartPointer<vtkPoints>::New();
-	for (int i=0; i < 5*N; i++) {
+	for (int i=0; i < Nodes.size(); i++) {
 		Points -> InsertNextPoint(Nodes[i].x,Nodes[i].y,0.0);
 	}
 
@@ -342,6 +344,61 @@ void _Graph::DeleteRandomEdge(int *io, int *jo) {
 		Edges.erase(it);
 
 	}
+
+}
+
+void _Graph::GetProperties(double *M) {
+
+	igraph_i_set_attribute_table(&igraph_cattribute_table);
+
+	igraph_t iGraph;
+	igraph_vector_t iEdges;
+	igraph_vector_t iLength;
+    
+	igraph_vector_init(&iLength,Edges.size());
+      igraph_vector_init(&iEdges,2*Edges.size());
+
+	int e = 0;
+	double tlength = 0.0;
+	for (std::list<_edge>::iterator it = Edges.begin(), end = Edges.end(); it != end; ++it) {
+		VECTOR(iEdges)[2*e+0] = (igraph_integer_t) (*it).i;
+		VECTOR(iEdges)[2*e+1] = (igraph_integer_t) (*it).j;
+		VECTOR(iLength)[e] = (igraph_real_t) (*it).length;
+		tlength += (*it).length;
+		e++;
+	}
+	
+	igraph_create(&iGraph,&iEdges,N,false);
+	SETEANV(&iGraph,"Length",&iLength);
+
+	igraph_vector_destroy(&iEdges);
+	igraph_vector_destroy(&iLength);
+
+ 	M[0] = igraph_vcount(&iGraph);
+	M[1] = igraph_ecount(&iGraph);
+	M[2] = tlength;
+	M[3] = tlength / M[1];
+
+	int no;
+	igraph_vector_t iMem;
+	igraph_vector_t iCsize;
+	igraph_vector_init(&iMem,0);
+	igraph_vector_init(&iCsize,0);
+
+	igraph_clusters(&iGraph,&iMem,&iCsize,&no,IGRAPH_WEAK);
+
+	M[4] = (double)no;
+
+	int smax = 0;
+	for (int c = 0; c < no; c++) {
+		smax = (VECTOR(iCsize)[c]>smax) ? VECTOR(iCsize)[c] : smax;
+	}
+
+	M[5] = (double)smax / M[0];
+
+	igraph_vector_destroy(&iMem);
+	igraph_vector_destroy(&iCsize);
+
 
 }
 
@@ -596,13 +653,20 @@ void GetInstanceOfRandomPlanarGraph_Pk1(_Graph *Graph, double pk1) {
 
 int main(int argc, char *argv[]) {     
 
+	int nreal = 100;
 	srand(getpid());
+	char _Model[4] = {"EDG"};
 	char _RootFolder[256] = {""};
-	//sprintf(_RootFolder,"");
 
 	for (int i = 0; i < argc; i++) {
 		if (!strcmp(argv[i],"-path")) {
 			sprintf(_RootFolder,"%s//",argv[i+1]);
+		}
+		if (!strcmp(argv[i],"-model")) {
+			sprintf(_Model,"%s",argv[i+1]);
+		}
+		if (!strcmp(argv[i],"-r")) {
+			nreal = atoi(argv[i+1]);
 		}
 	}
 
@@ -616,34 +680,46 @@ int main(int argc, char *argv[]) {
 
 	char _GNETFile[256];
 	char _GNETList[256];
+	char _SUMMFile[256];
 	char ModelName[256];
+	double *M = new double[10];
+
+
+	sprintf(_SUMMFile,"%s%s.model",_RootFolder,_Model);
+
 	sprintf(_GNETList,"%smitoplanar.files",_RootFolder);
 	
 	FILE *f = fopen(_GNETList,"r");
+	FILE *s = fopen(_SUMMFile,"w");
+
 	while (fgets(_GNETFile,256, f) != NULL) {
 		_GNETFile[strcspn(_GNETFile, "\n" )] = '\0';
+
+		printf("%s\n",_GNETFile);
 
 		_Graph Graph;
 		Graph.MakeShallowCopy(_GNETFile,&E,&L);
 
-		for (int net = 0; net <  100; net++) {
+		for (int net = 0; net <  nreal; net++) {
 
-			printf("%d\n",net);
+			if (!strcmp(_Model,"EDG")) {
+				GetInstanceOfRandomPlanarGraph_Edge(&Graph,E);
+			}
+			if (!strcmp(_Model,"LGT")) {
+				GetInstanceOfRandomPlanarGraph_Length(&Graph,L);
+			}
+			if (!strcmp(_Model,"PK1")) {
+				GetInstanceOfRandomPlanarGraph_Pk1(&Graph,0.4);
+			}
 
-			GetInstanceOfRandomPlanarGraph_Edge(&Graph,20);
-
-			//GetInstanceOfRandomPlanarGraph_Length(&Graph,L);
-
-			//GetInstanceOfRandomPlanarGraph_Pk1(&Graph,0.4);
-
-			sprintf(ModelName,"%s-EDG-%03d.vtk",_GNETFile,net);
-			Graph.SavePolyData(ModelName);
-
-			//sprintf(ModelName,"%s-EDG-%03d.gnet",_GNETFile,net);
-			//Graph.SaveGNET(ModelName);
+			Graph.GetProperties(M);
+			fprintf(s,"%s\t%s\t%d\t%d\t%1.3f\t%1.3f\t%d\t%1.3f\n",_GNETFile,_Model,(int)M[0],(int)M[1],M[2],M[3],(int)M[4],M[5]);
 
 		}
-
+	
 	}
+
+	fclose(f);
+	fclose(s);
 	return 0;
 }
