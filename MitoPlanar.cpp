@@ -17,6 +17,7 @@
 #define _min(a,b) ((a<b)?a:b)
 #define _max(a,b) ((a>b)?a:b)
 #define _eps 1E-6
+#define TWO_PI 6.2831853071795864769252866
 
 /* =================================================================
    CLASSES
@@ -64,6 +65,7 @@ public:
 	void SavePolyData(const char FileName[]);
 	void SaveGNET(const char FileName[]);
 	void MakeShallowCopy(const char FilePrefix[], int *NEdges, double *Length, double *pk1);
+	void GenerateFromScratch(int n, int sn);
 
 	double GetEdgeLength(int i, int j);
 	bool IsPlanarEdge(int i, int j);
@@ -79,6 +81,22 @@ public:
 /* =================================================================
    AUXILIAR FUNCTIONS
    =================================================================*/
+
+double generateGaussianNoise(const double &variance) {
+	static bool haveSpare = false;
+	static double rand1, rand2;
+ 	if(haveSpare) {
+		haveSpare = false;
+		return sqrt(variance * rand1) * sin(rand2);
+	}
+ 
+	haveSpare = true;
+ 	rand1 = rand() / ((double) RAND_MAX);
+	if(rand1 < 1e-100) rand1 = 1e-100;
+	rand1 = -2 * log(rand1);
+	rand2 = (rand() / ((double) RAND_MAX)) * TWO_PI;
+ 	return sqrt(variance * rand1) * cos(rand2);
+}
 
 int _mirror(int q) {
 	switch (q) {
@@ -213,6 +231,37 @@ void _Graph::MakeShallowCopy(const char FilePrefix[], int *NEdges, double *Lengt
 		printf("\tLx = %1.3f, Ly = %1.3f\n",Lx,Ly);
 		printf("\tCopy Complete!\n");
 	#endif
+}
+
+void _Graph::GenerateFromScratch(int n, int sn) {
+	#ifdef DEBUG
+		printf("Generating from scratch...\n");
+	#endif
+
+	N = n + (int)generateGaussianNoise((double)sn);
+
+	Lx = 15;
+
+	Ly = 8;
+
+	Nodes.clear();
+
+	#ifdef DEBUG
+		printf("\t#Nodes = %d\n",N);
+	#endif
+
+	for (int i = 0; i < N; i++) {
+		_node node = {0,0};
+		Nodes.push_back(node);
+	}
+	
+	ShuffleCoordinates();
+
+	#ifdef DEBUG
+		printf("\tLx = %1.3f, Ly = %1.3f\n",Lx,Ly);
+		printf("\tComplete!\n");
+	#endif
+
 }
 
 /* =================================================================
@@ -594,7 +643,7 @@ void GetInstanceOfRandomPlanarGraph_Pk1(_Graph *Graph, double pk1) {
 	#endif
 
 	long int k1, k2;
-	int q, i, j, pi, pj;
+	int q, i, j, pi, pj, temp;
 	int N = Graph -> N;
 	int nk1 = (int)(pk1*N);
 	int nk3 = N - nk1;
@@ -637,6 +686,8 @@ void GetInstanceOfRandomPlanarGraph_Pk1(_Graph *Graph, double pk1) {
 	while (V.size() > 1) {
 		pi = rand()%V.size();
 		pj = rand()%V.size();
+		if ( pi > pj ) { temp = pj; pj = pi; pi = temp; }
+
 		i = V[pi];
 		j = V[pj];
 		_connected = 0;
@@ -665,9 +716,9 @@ void GetInstanceOfRandomPlanarGraph_Pk1(_Graph *Graph, double pk1) {
 			Graph -> clock.reset();
 			ADJ -> SetTuple1(i+j*N,1);
 			ADJ -> SetTuple1(j+i*N,1);
-			std::swap(V[pi],V.back());
-			V.pop_back();
 			std::swap(V[pj],V.back());
+			V.pop_back();
+			std::swap(V[pi],V.back());
 			V.pop_back();
 		} else {
 			Graph -> clock.t++;
@@ -703,7 +754,7 @@ void GetInstanceOfRandomPlanarGraph_Wax(_Graph *Graph, double pk1, double alpha)
 	#endif
 
 	long int k1, k2;
-	int q, i, j, pi, pj;
+	int q, i, j, pi, pj, temp;
 	int N = Graph -> N;
 	int nk1 = (int)(pk1*N);
 	int nk3 = N - nk1;
@@ -751,12 +802,13 @@ void GetInstanceOfRandomPlanarGraph_Wax(_Graph *Graph, double pk1, double alpha)
 		do {
 			pi = rand()%V.size();
 			pj = rand()%V.size();
+			if ( pi > pj ) { temp = pj; pj = pi; pi = temp; }
+
 			i = V[pi];
 			j = V[pj];
 
 			q = Graph -> GetClosestVirtualNode(i,j);
 			dij = Graph->GetEdgeLength(i,j + q*N);
-			//dij = sqrt(pow(Graph->Nodes[i].x-Graph->Nodes[j+q*N].x,2)+pow(Graph->Nodes[i].x-Graph->Nodes[j+q*N].x,2));
 			pij = exp(-alpha*dij);
 			pir = exp(-alpha*Dmin[i]) * (((double)rand())/RAND_MAX);
 
@@ -786,9 +838,9 @@ void GetInstanceOfRandomPlanarGraph_Wax(_Graph *Graph, double pk1, double alpha)
 			Graph -> clock.reset();
 			ADJ -> SetTuple1(i+j*N,1);
 			ADJ -> SetTuple1(j+i*N,1);
-			std::swap(V[pi],V.back());
+			std::swap(V[pj],V.back()); //Deleting pj first since pj > pi by construction.
 			V.pop_back();
-			std::swap(V[pj],V.back());
+			std::swap(V[pi],V.back());
 			V.pop_back();
 		} else {
 			Graph -> clock.t++;
@@ -824,8 +876,10 @@ void GetInstanceOfRandomPlanarGraph_Wax(_Graph *Graph, double pk1, double alpha)
 
 int main(int argc, char *argv[]) {     
 
-	int nreal = 100;
 	srand(getpid());
+
+	int sn, n = 0;
+	int nreal = 100;
 	bool _save = false;
 	double alpha = 1.0;
 	char _Model[4] = {"WAX"};
@@ -834,6 +888,10 @@ int main(int argc, char *argv[]) {
 	for (int i = 0; i < argc; i++) {
 		if (!strcmp(argv[i],"-path")) {
 			sprintf(_RootFolder,"%s//",argv[i+1]);
+		}
+		if (!strcmp(argv[i],"-n")) {
+			n = atoi(argv[i+1]);	
+			sn = atoi(argv[i+2]);
 		}
 		if (!strcmp(argv[i],"-model")) {
 			sprintf(_Model,"%s",argv[i+1]);
@@ -849,32 +907,20 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	// Generating list of files to run
-	char _cmd[256];
-	sprintf(_cmd,"ls %s*.gnet | sed -e 's/.gnet//' > %smitoplanar.files",_RootFolder,_RootFolder);
-	system(_cmd);
-
-	int E;
-	double L, pk1;
-
-	char _GNETFile[256];
-	char _GNETList[256];
-	char _MODLList[256];
+	// Summary file
 	char _SUMMFile[256];
-	char ModelName[256];
 	double *M = new double[10];
 
-	// List of files to run
-
-	sprintf(_GNETList,"%smitoplanar.files",_RootFolder);	
-	FILE *f = fopen(_GNETList,"r");
-
-	// Summary file
-
 	sprintf(_SUMMFile,"%s%s.model",_RootFolder,_Model);
+
 	FILE *s = fopen(_SUMMFile,"w");
 	fprintf(s,"MitoPlanar V1.0\n");
-	fprintf(s,"Folder: %s\n",_RootFolder);
+	if (n) {
+		fprintf(s,"Simulation not based on real networks.\n");
+		fprintf(s,"Number of nodes: G(%d,%d).\n",n,sn);
+	} else {
+		fprintf(s,"Folder: %s\n",_RootFolder);
+	}
 	if (!strcmp(_Model,"WAX")) {
 		fprintf(s,"Network Model: %s, alpha = %1.3f\n",_Model,alpha);
 	} else {
@@ -883,50 +929,108 @@ int main(int argc, char *argv[]) {
 	fprintf(s,"Number of realizations: %d\n",nreal);
 	time_t now = time(0);
 	fprintf(s,"%s\n",ctime(&now));
-	fprintf(s,"Path\t Model\t NNodes\t NEdges\t Length (um)\t AvgEdgeLength (um)\t NClusters\t Phi\n");
+	if (n) {
+		fprintf(s,"Pk1\t Model\t NNodes\t NEdges\t Length (um)\t AvgEdgeLength (um)\t NClusters\t Phi\n");
+	} else {
+		fprintf(s,"Path\t Model\t NNodes\t NEdges\t Length (um)\t AvgEdgeLength (um)\t NClusters\t Phi\n");
+	}
 	fclose(s);
 
-	// Main loop
+	if ( !n ) {
 
-	while (fgets(_GNETFile,256, f) != NULL) {
-		_GNETFile[strcspn(_GNETFile, "\n" )] = '\0';
+		// Generating list of files to run
+		char _cmd[256];
+		sprintf(_cmd,"ls %s*.gnet | sed -e 's/.gnet//' > %smitoplanar.files",_RootFolder,_RootFolder);
+		system(_cmd);
 
-		sprintf(_MODLList,"%s-%s.gnet",_GNETFile,_Model);
+		int E;
+		double L, pk1;
 
-		_Graph Graph;
-		Graph.MakeShallowCopy(_GNETFile,&E,&L,&pk1);
+		char _GNETFile[256];
+		char _GNETList[256];
+		char _MODLList[256];
+		char ModelName[256];
 
-		for (int net = 0; net <  nreal; net++) {
+		// List of files to run
 
-			//fprintf(s,"MitoPlanar V1.0\n");
+		sprintf(_GNETList,"%smitoplanar.files",_RootFolder);	
+		FILE *f = fopen(_GNETList,"r");
 
-			if (!strcmp(_Model,"EDG")) {
-				GetInstanceOfRandomPlanarGraph_Edge(&Graph,E);
+		// Main loop
+
+		while (fgets(_GNETFile,256, f) != NULL) {
+			_GNETFile[strcspn(_GNETFile, "\n" )] = '\0';
+
+			sprintf(_MODLList,"%s-%s.gnet",_GNETFile,_Model);
+
+			_Graph Graph;
+			Graph.MakeShallowCopy(_GNETFile,&E,&L,&pk1);
+
+			for (int net = 0; net <  nreal; net++) {
+
+				//fprintf(s,"MitoPlanar V1.0\n");
+
+				if (!strcmp(_Model,"EDG")) {
+					GetInstanceOfRandomPlanarGraph_Edge(&Graph,E);
+				}
+				if (!strcmp(_Model,"LGT")) {
+					GetInstanceOfRandomPlanarGraph_Length(&Graph,L);
+				}
+				if (!strcmp(_Model,"PK1")) {
+					GetInstanceOfRandomPlanarGraph_Pk1(&Graph,pk1);
+				}
+				if (!strcmp(_Model,"WAX")) {
+					GetInstanceOfRandomPlanarGraph_Wax(&Graph,pk1,alpha);
+				}
+				if (!strcmp(_Model,"WXS")) {
+					Graph.ShuffleCoordinates();
+					GetInstanceOfRandomPlanarGraph_Wax(&Graph,pk1,alpha);
+				}
+				Graph.GetProperties(M);
+
+				s = fopen(_SUMMFile,"a");
+				fprintf(s,"%s\t%s\t%d\t%d\t%1.3f\t%1.3f\t%d\t%1.3f\n",_GNETFile,_Model,(int)M[0],(int)M[1],M[2],M[3],(int)M[4],M[5]);
+				fclose(s);
+
+				if (_save) Graph.SaveGNET(_MODLList);
 			}
-			if (!strcmp(_Model,"LGT")) {
-				GetInstanceOfRandomPlanarGraph_Length(&Graph,L);
-			}
-			if (!strcmp(_Model,"PK1")) {
-				GetInstanceOfRandomPlanarGraph_Pk1(&Graph,pk1);
-			}
-			if (!strcmp(_Model,"WAX")) {
-				GetInstanceOfRandomPlanarGraph_Wax(&Graph,pk1,alpha);
-			}
-			if (!strcmp(_Model,"WXS")) {
-				Graph.ShuffleCoordinates();
-				GetInstanceOfRandomPlanarGraph_Wax(&Graph,pk1,alpha);
-			}
-			Graph.GetProperties(M);
-
-			s = fopen(_SUMMFile,"a");
-			fprintf(s,"%s\t%s\t%d\t%d\t%1.3f\t%1.3f\t%d\t%1.3f\n",_GNETFile,_Model,(int)M[0],(int)M[1],M[2],M[3],(int)M[4],M[5]);
-			fclose(s);
-
-			if (_save) Graph.SaveGNET(_MODLList);
+		
 		}
-	
+
+		fclose(f);
+
+	} else {
+
+		#ifdef DEBUG
+			printf("Simulation mode...\n");
+		#endif
+
+		double pk1 = 0.05;
+
+		do {
+
+			for (int net = 0; net <  nreal; net++) {
+
+				_Graph Graph;
+				Graph.GenerateFromScratch(n,sn);
+
+				if (!strcmp(_Model,"WAX")) {
+					GetInstanceOfRandomPlanarGraph_Wax(&Graph,pk1,alpha);
+				}
+
+				Graph.GetProperties(M);
+
+				s = fopen(_SUMMFile,"a");
+				fprintf(s,"%1.2f\t%s\t%d\t%d\t%1.3f\t%1.3f\t%d\t%1.3f\n",pk1,_Model,(int)M[0],(int)M[1],M[2],M[3],(int)M[4],M[5]);
+				fclose(s);
+
+			}
+
+			pk1 += 0.05;
+
+		} while (pk1 < 1.01);
+
 	}
 
-	fclose(f);
 	return 0;
 }
