@@ -14,8 +14,8 @@
 #include <vtkBitArray.h>
 #include <vtkKdTreePointLocator.h>
 
-#define _min(a,b) ((a<b)?a:b)
-#define _max(a,b) ((a>b)?a:b)
+#define _min(a,b) ((a<b) ? a : b)
+#define _max(a,b) ((a>b) ? a : b)
 #define _eps 1E-6
 #define TWO_PI 6.2831853071795864769252866
 
@@ -109,6 +109,17 @@ int _mirror(int q) {
 
 bool IsInBetween(double ri[3], double rj[3], double v, int d) {
 	return ( v > _min(ri[d],rj[d]) ) && ( v < _max(ri[d],rj[d]) ) ? true : false;
+}
+
+bool BoundBoxIntercept(double ri[3], double rj[3], double ru[3], double rv[3]) {
+	if (_min(ri[0],rj[0])<_max(ru[0],rv[0])) {
+		if (_max(ri[0],rj[0])>_min(ru[0],rv[0])) {
+			if (_min(ri[1],rj[1])<_max(ru[1],rv[1])) {
+				if (_max(ri[1],rj[1])>_min(ru[1],rv[1])) return true;
+			}
+		}
+	}
+	return false;
 }
 
 bool SegmentsContainPoint(double ri[3], double rj[3], double ru[3], double rv[3], double xc, double yc) {
@@ -283,21 +294,29 @@ bool _Graph::IsPlanarEdge(int i, int j) {
 	ri[0] = Nodes[i].x; ri[1] = Nodes[i].y;
 	rj[0] = Nodes[j].x; rj[1] = Nodes[j].y;
 
-	for (std::list<_edge>::iterator it = Edges.begin(), end = Edges.end(); it != end; ++it) {
+	bool _stillplanar = true;
+
+	#pragma omp parallel
+	for (std::list<_edge>::iterator it = Edges.begin(), end = Edges.end(); (it!=end)&&(_stillplanar); ++it) {
 		ru[0] = Nodes[(*it).i].x; ru[1] = Nodes[(*it).i].y;
 		rv[0] = Nodes[(*it).j].x; rv[1] = Nodes[(*it).j].y;
 
-		Det = ( rj[1] - ri[1] ) * ( rv[0] - ru[0] ) - ( rv[1] - ru[1] ) * ( rj[0] - ri[0] );
+		if (BoundBoxIntercept(ri,rj,ru,rv)) {
 
-		if(fabs(Det) > _eps) {
-			Q =  ri[0] * ( rv[1] - ru[1] ) + ru[0] * ( ri[1] - rv[1] ) + rv[0] * ( ru[1] - ri[1] );
-			xc = ri[0] + (Q / Det) * ( rj[0] - ri[0] );
-			yc = ri[1] + (Q / Det) * ( rj[1] - ri[1] );
+			Det = ( rj[1] - ri[1] ) * ( rv[0] - ru[0] ) - ( rv[1] - ru[1] ) * ( rj[0] - ri[0] );
 
-			if (SegmentsContainPoint(ri,rj,ru,rv,xc,yc)) return false;
+			if(fabs(Det) > _eps) {
+				Q =  ri[0] * ( rv[1] - ru[1] ) + ru[0] * ( ri[1] - rv[1] ) + rv[0] * ( ru[1] - ri[1] );
+				xc = ri[0] + (Q / Det) * ( rj[0] - ri[0] );
+				yc = ri[1] + (Q / Det) * ( rj[1] - ri[1] );
+
+				//if (SegmentsContainPoint(ri,rj,ru,rv,xc,yc)) return false;
+				if (SegmentsContainPoint(ri,rj,ru,rv,xc,yc)) _stillplanar = false;
+			}
+
 		}
 	}
-	return true;
+	return _stillplanar;
 }
 
 void _Graph::CreateVirtualNodes() {
@@ -878,6 +897,7 @@ int main(int argc, char *argv[]) {
 
 	srand(getpid());
 
+	int _mode = 0;
 	int sn, n = 0;
 	int nreal = 100;
 	bool _save = false;
@@ -888,10 +908,6 @@ int main(int argc, char *argv[]) {
 	for (int i = 0; i < argc; i++) {
 		if (!strcmp(argv[i],"-path")) {
 			sprintf(_RootFolder,"%s//",argv[i+1]);
-		}
-		if (!strcmp(argv[i],"-n")) {
-			n = atoi(argv[i+1]);	
-			sn = atoi(argv[i+2]);
 		}
 		if (!strcmp(argv[i],"-model")) {
 			sprintf(_Model,"%s",argv[i+1]);
@@ -904,6 +920,16 @@ int main(int argc, char *argv[]) {
 		}
 		if (!strcmp(argv[i],"-save")) {
 			_save = true;
+		}
+		if (!strcmp(argv[i],"-pk1_mode")) {
+			_mode = 1;
+			n = atoi(argv[i+1]);	
+			sn = atoi(argv[i+2]);
+		}
+		if (!strcmp(argv[i],"-size_mode")) {
+			_mode = 2;
+			n = atoi(argv[i+1]);	
+			sn = atoi(argv[i+2]);
 		}
 	}
 
@@ -936,7 +962,7 @@ int main(int argc, char *argv[]) {
 	}
 	fclose(s);
 
-	if ( !n ) {
+	if ( _mode==0 ) {
 
 		// Generating list of files to run
 		char _cmd[256];
@@ -999,10 +1025,10 @@ int main(int argc, char *argv[]) {
 
 		fclose(f);
 
-	} else {
+	} else if (_mode == 1) {
 
 		#ifdef DEBUG
-			printf("Simulation mode...\n");
+			printf("Simulation mode (pk1 mode)...\n");
 		#endif
 
 		double pk1 = 0.05;
@@ -1029,6 +1055,33 @@ int main(int argc, char *argv[]) {
 			pk1 += 0.05;
 
 		} while (pk1 < 1.01);
+
+	} else if (_mode==2) {
+
+		#ifdef DEBUG
+			printf("Simulation mode (size mode)...\n");
+		#endif
+
+		for (int nnodes = n; n <= 300; n+= sn) {
+
+			for (int net = 0; net <  nreal; net++) {
+
+				_Graph Graph;
+				Graph.GenerateFromScratch(n,0);
+
+				if (!strcmp(_Model,"WAX")) {
+					GetInstanceOfRandomPlanarGraph_Wax(&Graph,0.75,alpha);
+				}
+
+				Graph.GetProperties(M);
+
+				s = fopen(_SUMMFile,"a");
+				fprintf(s,"0.75\t%s\t%d\t%d\t%1.3f\t%1.3f\t%d\t%1.3f\n",_Model,(int)M[0],(int)M[1],M[2],M[3],(int)M[4],M[5]);
+				fclose(s);
+
+			}
+
+		}
 
 	}
 
