@@ -72,15 +72,27 @@ public:
 	void CreateVirtualNodes();
 	int GetClosestVirtualNode(int i, int j);
 	void ClipNetwork();
+	void DeleteEdge(_edge edge);
 	void DeleteRandomEdge(int *, int *j);
 	void GetProperties(double *M);
 	void GetMinimumDistanceVector(std::vector<double> &Dmin);
 	void ShuffleCoordinates();
+	bool SwapPairOfEdges(int *i, int *j, int *p, int *q);
 };
 
 /* =================================================================
    AUXILIAR FUNCTIONS
    =================================================================*/
+
+void _help() {
+	printf("-path\n");
+	printf("-model\t\t{EDG,LGT,PK1,WAX,WXS}\n");
+	printf("-r\t\t(number of instances)\n");
+	printf("-alpha\t\t(distance strength in distance-based models)\n");
+	printf("-save\t\t(save instances generated)\n");
+	printf("-pk1_mode\n");
+	printf("-size_mode\n");
+}
 
 double generateGaussianNoise(const double &variance) {
 	static bool haveSpare = false;
@@ -249,7 +261,9 @@ void _Graph::GenerateFromScratch(int n, int sn) {
 		printf("Generating from scratch...\n");
 	#endif
 
-	N = n + (int)generateGaussianNoise((double)sn);
+	N = 0;
+	while (N < 13)
+		N = n + (int)generateGaussianNoise((double)sn);
 
 	Lx = 15;
 
@@ -378,6 +392,48 @@ void _Graph::ClipNetwork() {
 	#ifdef DEBUG
 		printf("\tDone!\n");
 	#endif
+}
+
+void _Graph::DeleteEdge(_edge edge) {
+
+	int q, i, j;
+	std::list<_edge>::iterator it;
+
+	i = edge.i;
+	j = edge.j;
+
+	if (edge.type < 5) {
+
+		i -= (i/N)*N;
+		j -= (j/N)*N;
+
+		for (q = 0; q < 5; q++) {
+			edge.i = i + q*N;
+			edge.j = j + q*N;
+			it = std::find(Edges.begin(),Edges.end(),edge);
+			Edges.erase(it);
+		}
+
+	} else if (edge.type == 5) {
+
+		q = j / N;
+
+		Edges.erase(it);
+		edge.i = i+_mirror(j/N)*N;
+		edge.j = j - (j/N)*N;
+		it = std::find(Edges.begin(),Edges.end(),edge);
+		Edges.erase(it);
+
+	} else {
+
+		Edges.erase(it);
+		edge.i = i - (i/N)*N;
+ 		edge.j = j + _mirror(i/N)*N;
+		it = std::find(Edges.begin(),Edges.end(),edge);
+		Edges.erase(it);
+
+	}
+
 }
 
 void _Graph::DeleteRandomEdge(int *io, int *jo) {
@@ -517,6 +573,48 @@ void _Graph::ShuffleCoordinates() {
 	}
 }
 
+bool _Graph::SwapPairOfEdges(int *io, int *jo, int *po, int *qo) {
+ 	std::list<_edge>::iterator it1 = Edges.begin();
+	std::advance(it1,rand()%Edges.size());
+	_edge edge1 = *it1;
+
+	int i = edge1.i;
+	int j = edge1.j;
+	if (edge1.type < 5) {
+		i -= (i/N)*N;
+		j -= (j/N)*N;
+	} else if (edge1.type == 5) {
+		j -= (j/N)*N;
+	} else {
+		i -= (i/N)*N;
+	}
+
+	std::list<_edge>::iterator it2 = Edges.begin();
+	std::advance(it2,rand()%Edges.size());
+	_edge edge2 = *it2;
+
+	int p = edge2.i;
+	int q = edge2.j;
+	if (edge2.type < 5) {
+		p -= (p/N)*N;
+		q -= (q/N)*N;
+	} else if (edge2.type == 5) {
+		q -= (q/N)*N;
+	} else {
+		p -= (p/N)*N;
+	}
+
+	printf("Edges = (%d,%d)-%d,\t(%d,%d)-%d\n",i,j,edge1.type,p,q,edge2.type);
+
+	ClipNetwork();
+
+	SaveGNET("/Users/matheusviana/GitHub/MItoPlanar/temp.gnet");
+
+	DeleteEdge(edge1);
+	//DeleteEdge(edge2);
+
+}
+
 /* =================================================================
    NETWORK MODEL ROUTINES
    =================================================================*/
@@ -654,7 +752,7 @@ void GetInstanceOfRandomPlanarGraph_Length(_Graph *Graph, double L) {
 
 }
 
-void GetInstanceOfRandomPlanarGraph_Pk1(_Graph *Graph, double pk1) {
+void GetInstanceOfRandomPlanarGraph_Pk1(_Graph *Graph, double pk1, bool _clip = true) {
 
 	#ifdef DEBUG
 		printf("Random Model Constrained by Degree Distribution...\n");
@@ -756,7 +854,8 @@ void GetInstanceOfRandomPlanarGraph_Pk1(_Graph *Graph, double pk1) {
 		}
 	}
 
-	Graph -> ClipNetwork();
+	if ( _clip )
+		Graph -> ClipNetwork();
 
 	#ifdef DEBUG
 		printf("\tModel Complete!\n");
@@ -887,6 +986,23 @@ void GetInstanceOfRandomPlanarGraph_Wax(_Graph *Graph, double pk1, double alpha)
 
 }
 
+void RunOptimizationProcess_Wax(_Graph *Graph) {
+
+	#ifdef DEBUG
+		printf("Simple dynamic model...\n");
+	#endif
+
+	int i, j, p, q;
+	Graph -> SwapPairOfEdges(&i,&j,&p,&q);
+
+	//Graph -> ClipNetwork();
+
+	#ifdef DEBUG
+		printf("\tModel Complete!\n");
+	#endif
+
+
+}
 
 /* =================================================================
    MAIN
@@ -904,8 +1020,13 @@ int main(int argc, char *argv[]) {
 	double alpha = 1.0;
 	char _Model[4] = {"WAX"};
 	char _RootFolder[256] = {""};
+	char _SaveFolder[256] = {""};
 
 	for (int i = 0; i < argc; i++) {
+		if (!strcmp(argv[i],"-help")) {
+			_help();
+			return 0;
+		}
 		if (!strcmp(argv[i],"-path")) {
 			sprintf(_RootFolder,"%s//",argv[i+1]);
 		}
@@ -919,6 +1040,7 @@ int main(int argc, char *argv[]) {
 			alpha = atof(argv[i+1]);
 		}
 		if (!strcmp(argv[i],"-save")) {
+			sprintf(_SaveFolder,"%s",argv[i+1]);
 			_save = true;
 		}
 		if (!strcmp(argv[i],"-pk1_mode")) {
@@ -970,7 +1092,7 @@ int main(int argc, char *argv[]) {
 		system(_cmd);
 
 		int E;
-		double L, pk1;
+		double L, pk1, total_length;
 
 		char _GNETFile[256];
 		char _GNETList[256];
@@ -987,14 +1109,14 @@ int main(int argc, char *argv[]) {
 		while (fgets(_GNETFile,256, f) != NULL) {
 			_GNETFile[strcspn(_GNETFile, "\n" )] = '\0';
 
-			sprintf(_MODLList,"%s-%s.gnet",_GNETFile,_Model);
+			printf("%s\n",_GNETFile);
 
 			_Graph Graph;
 			Graph.MakeShallowCopy(_GNETFile,&E,&L,&pk1);
 
-			for (int net = 0; net <  nreal; net++) {
+			total_length = 0.0;
 
-				//fprintf(s,"MitoPlanar V1.0\n");
+			for (int net = 0; net <  nreal; net++) {
 
 				if (!strcmp(_Model,"EDG")) {
 					GetInstanceOfRandomPlanarGraph_Edge(&Graph,E);
@@ -1012,14 +1134,26 @@ int main(int argc, char *argv[]) {
 					Graph.ShuffleCoordinates();
 					GetInstanceOfRandomPlanarGraph_Wax(&Graph,pk1,alpha);
 				}
+				if (!strcmp(_Model,"DYN")) {
+					printf("===============\n");
+					GetInstanceOfRandomPlanarGraph_Pk1(&Graph,pk1,false);
+					RunOptimizationProcess_Wax(&Graph);
+				}
 				Graph.GetProperties(M);
 
 				s = fopen(_SUMMFile,"a");
 				fprintf(s,"%s\t%s\t%d\t%d\t%1.3f\t%1.3f\t%d\t%1.3f\n",_GNETFile,_Model,(int)M[0],(int)M[1],M[2],M[3],(int)M[4],M[5]);
 				fclose(s);
 
+				total_length += M[2];
+
+				sprintf(_MODLList,"%s-%d.%s",_GNETFile,net,_Model);
 				if (_save) Graph.SaveGNET(_MODLList);
+
+				printf("\t%d\n",net);
 			}
+
+			printf("\tTotal length = %1.5f\n",total_length/nreal);
 		
 		}
 
