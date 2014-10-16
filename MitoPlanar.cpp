@@ -65,10 +65,12 @@ public:
 	void SavePolyData(const char FileName[]);
 	void SaveGNET(const char FileName[]);
 	void MakeShallowCopy(const char FilePrefix[], int *NEdges, double *Length, double *pk1);
+	void MakeDeepCopy(const char FilePrefix[], int *NEdges, double *Length, double *pk1);
 	void GenerateFromScratch(int n, int sn);
 
 	double GetEdgeLength(int i, int j);
 	bool IsPlanarEdge(int i, int j);
+	int GetTotalNumberOfCrosses();
 	void CreateVirtualNodes();
 	int GetClosestVirtualNode(int i, int j);
 	void ClipNetwork();
@@ -119,11 +121,11 @@ int _mirror(int q) {
 	}
 }
 
-bool IsInBetween(double ri[3], double rj[3], double v, int d) {
-	return ( v > _min(ri[d],rj[d]) ) && ( v < _max(ri[d],rj[d]) ) ? true : false;
+bool IsInBetween(long double ri[3], long double rj[3], long double v, int d) {
+	return ( v > _min(ri[d],rj[d])+_eps ) && ( v < _max(ri[d],rj[d]-_eps) ) ? true : false;
 }
 
-bool BoundBoxIntercept(double ri[3], double rj[3], double ru[3], double rv[3]) {
+bool BoundBoxIntercept(long double ri[3], long double rj[3], long double ru[3], long double rv[3]) {
 	if (_min(ri[0],rj[0])<_max(ru[0],rv[0])) {
 		if (_max(ri[0],rj[0])>_min(ru[0],rv[0])) {
 			if (_min(ri[1],rj[1])<_max(ru[1],rv[1])) {
@@ -134,7 +136,7 @@ bool BoundBoxIntercept(double ri[3], double rj[3], double ru[3], double rv[3]) {
 	return false;
 }
 
-bool SegmentsContainPoint(double ri[3], double rj[3], double ru[3], double rv[3], double xc, double yc) {
+bool SegmentsContainPoint(long double ri[3], long double rj[3], long double ru[3], long double rv[3], long double xc, long double yc) {
 	if ( IsInBetween(ri,rj,xc,0) ) {
 		if ( IsInBetween(ri,rj,yc,1) ) {
 			if ( IsInBetween(ru,rv,xc,0) ) {
@@ -256,6 +258,102 @@ void _Graph::MakeShallowCopy(const char FilePrefix[], int *NEdges, double *Lengt
 	#endif
 }
 
+void _Graph::MakeDeepCopy(const char FilePrefix[], int *NEdges, double *Length, double *pk1) {
+
+	#ifdef DEBUG
+		printf("Copying Coordinates From %s.coo2d\n",FilePrefix);
+	#endif
+
+	char text[128], _path[128];
+	int i, j, E = 0;
+	float x, y, length, L = 0.0;
+	sprintf(_path,"%s.gnet",FilePrefix);
+	FILE *fg = fopen(_path,"r");
+	if (!fg) {
+		printf("File %s.gnet not found.",FilePrefix);
+	}
+	sprintf(_path,"%s.coo2d",FilePrefix);
+	FILE *fc = fopen(_path,"r");
+	if (!fc) {
+		printf("File %s.coo2d not found.",FilePrefix);
+	}
+	fscanf(fg,"%d",&N);
+	std::vector<int> K (N,0);
+	while (fscanf(fg,"%d %d %f",&i,&j,&length)!=EOF) {
+		K[i]++;
+		K[j]++;
+		E++;
+		L+=length;
+	}
+
+	Nodes.clear();
+
+	#ifdef DEBUG
+		printf("\t#Nodes = %d\n",N);
+		printf("\t#Edges = %d\n",E);
+		printf("\t#Length = %1.3f\n",L);
+	#endif
+
+	fscanf(fc,"%s",text);
+	fscanf(fc,"%f",&Lx);
+	fscanf(fc,"%f",&Ly);
+	fscanf(fc,"%s",text);
+
+	while (fscanf(fc,"%f %f",&x,&y)!=EOF) {
+		x += _eps * (1.0*rand())/RAND_MAX;
+		y += _eps * (1.0*rand())/RAND_MAX;
+		_node node = {x,y};
+		Nodes.push_back(node);
+	}
+	fclose(fc);
+	*Length = L;
+	*NEdges = E;
+
+	int nk1 = 0;
+	for (i = 0; i < N; i++) if (K[i]==1) nk1++;
+
+	*pk1 = (double)nk1 / N;
+	K.clear();
+
+	#ifdef DEBUG
+		printf("\tLx = %1.3f, Ly = %1.3f\n",Lx,Ly);
+	#endif
+
+	CreateVirtualNodes();
+
+	long int k;
+	int q, ne = 0;
+
+	#ifdef DEBUG
+		printf("Copying edges form %s\n",FilePrefix);
+	#endif
+
+	Edges.clear();
+
+	rewind(fg);
+	fscanf(fg,"%d",&i);
+
+	int _nplanar=0;
+	while (fscanf(fg,"%d %d %f",&i,&j,&length) != EOF) {
+		q = GetClosestVirtualNode(i,j);
+		length = GetEdgeLength(i,j + q*N);
+		if (q) {
+			_edge edge = {i,j+q*N,5,length};
+			Edges.push_back(edge);
+			_edge edge_m = {i+_mirror(q)*N,j,6,length};
+			Edges.push_back(edge_m);
+		} else {
+			for (q = 0; q < 5; q++) {
+	 			_edge edge = {i+q*N,j+q*N,q,length};
+	 			Edges.push_back(edge);
+	 		}
+		}
+	}
+
+	fclose(fg);
+
+}
+
 void _Graph::GenerateFromScratch(int n, int sn) {
 	#ifdef DEBUG
 		printf("Generating from scratch...\n");
@@ -303,8 +401,8 @@ double _Graph::GetEdgeLength(int i, int j) {
 }
 
 bool _Graph::IsPlanarEdge(int i, int j) {
-	double Det, Q, xc, yc, fac;
-	double ri[3], rj[3], ru[3], rv[3];
+	long double Det, Q, xc, yc, fac;
+	long double ri[3], rj[3], ru[3], rv[3];
 	ri[0] = Nodes[i].x; ri[1] = Nodes[i].y;
 	rj[0] = Nodes[j].x; rj[1] = Nodes[j].y;
 
@@ -331,6 +429,50 @@ bool _Graph::IsPlanarEdge(int i, int j) {
 		}
 	}
 	return _stillplanar;
+}
+
+int _Graph::GetTotalNumberOfCrosses() {
+	int _ncrosses = 0;
+	long double Det, Q, xc, yc, fac;
+	long double ri[3], rj[3], ru[3], rv[3];
+
+	#pragma omp parallel
+	for (std::list<_edge>::iterator it_o = Edges.begin(), end_o = Edges.end(); (it_o!=end_o); ++it_o) {
+
+		if (  ((*it_o).i<N && (*it_o).j<N) || (((*it_o).i<N || (*it_o).i<N) && ((*it_o).i<(*it_o).j))  ) {
+
+			ri[0] = Nodes[(*it_o).i].x; ri[1] = Nodes[(*it_o).i].y;
+			rj[0] = Nodes[(*it_o).j].x; rj[1] = Nodes[(*it_o).j].y;
+
+			for (std::list<_edge>::iterator it = Edges.begin(), end = Edges.end(); (it!=end); ++it) {
+
+				if ((*it_o).i!=(*it).i||(*it_o).j!=(*it).j) {
+
+					ru[0] = Nodes[(*it).i].x; ru[1] = Nodes[(*it).i].y;
+					rv[0] = Nodes[(*it).j].x; rv[1] = Nodes[(*it).j].y;
+
+					if (BoundBoxIntercept(ri,rj,ru,rv)) {
+
+						Det = ( rj[1] - ri[1] ) * ( rv[0] - ru[0] ) - ( rv[1] - ru[1] ) * ( rj[0] - ri[0] );
+
+						if(fabs(Det) > _eps) {
+							Q =  ri[0] * ( rv[1] - ru[1] ) + ru[0] * ( ri[1] - rv[1] ) + rv[0] * ( ru[1] - ri[1] );
+							xc = ri[0] + (Q / Det) * ( rj[0] - ri[0] );
+							yc = ri[1] + (Q / Det) * ( rj[1] - ri[1] );
+
+							if (SegmentsContainPoint(ri,rj,ru,rv,xc,yc)) _ncrosses++;
+
+						}
+
+					}
+
+				}
+
+			}
+
+		}
+	}
+	return _ncrosses/2;
 }
 
 void _Graph::CreateVirtualNodes() {
@@ -536,8 +678,24 @@ void _Graph::GetProperties(double *M) {
 
 	M[5] = (double)smax / M[0];
 
+	M[6] = M[7] = M[8] = M[9] = 0.0;
+
+	int k;
+	igraph_vector_t K;
+	igraph_vector_init(&K,0);
+	igraph_degree(&iGraph,&K,igraph_vss_all(),IGRAPH_ALL,IGRAPH_NO_LOOPS);
+	for (int i = 0; i < N; i++) {
+		k = (int)VECTOR(K)[i];
+		if (k<4) {
+			M[5+k] += 1.0/N;
+		} else {
+			M[9] += 1.0/N;
+		}
+	}
+
 	igraph_vector_destroy(&iMem);
 	igraph_vector_destroy(&iCsize);
+	igraph_vector_destroy(&K);
 
 }
 
@@ -619,7 +777,64 @@ bool _Graph::SwapPairOfEdges(int *io, int *jo, int *po, int *qo) {
    NETWORK MODEL ROUTINES
    =================================================================*/
 
-void GetInstanceOfRandomPlanarGraph_Edge(_Graph *Graph, int E) {
+void GetInstanceOfRandomGraph_Edge(_Graph *Graph, int E, bool _clip) {
+
+	#ifdef DEBUG
+		printf("Random Model Constrained by Number of Edges...\n");
+		printf("\tAllocating adjacency matrix...\n");
+	#endif
+
+	Graph -> CreateVirtualNodes();
+
+	long int k;
+	double length;
+	int q, i, j, ne = 0;
+	int N = Graph -> N;
+	vtkSmartPointer<vtkBitArray> ADJ = vtkSmartPointer<vtkBitArray>::New();
+	ADJ -> SetNumberOfComponents(1);
+	ADJ -> SetNumberOfTuples(N*N);
+	ADJ -> FillComponent(0,0);
+	for (i=N;i--;) ADJ->SetTuple1(i+i*N,1);
+
+	#ifdef DEBUG
+		printf("\tAllocated!\n");
+	#endif
+
+
+	Graph -> Edges.clear();
+
+	while (ne < E) {
+		i = rand()%N;
+		j = rand()%N;
+		if (!ADJ->GetTuple1(i+j*N)) {
+			q = Graph -> GetClosestVirtualNode(i,j);
+			length = Graph->GetEdgeLength(i,j + q*N);
+			if (q) {
+				_edge edge = {i,j+q*Graph->N,5,length};
+				Graph->Edges.push_back(edge);
+				_edge edge_m = {i+_mirror(q)*Graph->N,j,6,length};
+				Graph->Edges.push_back(edge_m);
+			} else {
+				for (q = 0; q < 5; q++) {
+		 			_edge edge = {i+q*Graph->N,j+q*Graph->N,q,length};
+		 			Graph->Edges.push_back(edge);
+		 		}
+			}
+	 		ne++;
+			ADJ -> SetTuple1(i+j*N,1);
+			ADJ -> SetTuple1(j+i*N,1);
+		}
+	}
+
+	if (_clip) Graph -> ClipNetwork();
+
+	#ifdef DEBUG
+		printf("\tModel Complete!\n");
+	#endif
+
+}
+
+void GetInstanceOfRandomPlanarGraph_Edge(_Graph *Graph, int E, bool _clip) {
 
 	#ifdef DEBUG
 		printf("Random Model Constrained by Number of Edges...\n");
@@ -678,7 +893,7 @@ void GetInstanceOfRandomPlanarGraph_Edge(_Graph *Graph, int E) {
 		}
 	}
 
-	Graph -> ClipNetwork();
+	if (_clip) Graph -> ClipNetwork();
 
 	#ifdef DEBUG
 		printf("\tModel Complete!\n");
@@ -686,7 +901,7 @@ void GetInstanceOfRandomPlanarGraph_Edge(_Graph *Graph, int E) {
 
 }
 
-void GetInstanceOfRandomPlanarGraph_Length(_Graph *Graph, double L) {
+void GetInstanceOfRandomPlanarGraph_Length(_Graph *Graph, double L, bool _clip) {
 
 	#ifdef DEBUG
 		printf("Random Model Constrained by Total Length...\n");
@@ -744,7 +959,7 @@ void GetInstanceOfRandomPlanarGraph_Length(_Graph *Graph, double L) {
 		}
 	}
 
-	Graph -> ClipNetwork();
+	if (_clip) Graph -> ClipNetwork();
 
 	#ifdef DEBUG
 		printf("\tModel Complete!\n");
@@ -752,7 +967,7 @@ void GetInstanceOfRandomPlanarGraph_Length(_Graph *Graph, double L) {
 
 }
 
-void GetInstanceOfRandomPlanarGraph_Pk1(_Graph *Graph, double pk1, bool _clip = true) {
+void GetInstanceOfRandomPlanarGraph_Pk1(_Graph *Graph, double pk1, bool _clip) {
 
 	#ifdef DEBUG
 		printf("Random Model Constrained by Degree Distribution...\n");
@@ -854,8 +1069,7 @@ void GetInstanceOfRandomPlanarGraph_Pk1(_Graph *Graph, double pk1, bool _clip = 
 		}
 	}
 
-	if ( _clip )
-		Graph -> ClipNetwork();
+	if ( _clip ) Graph -> ClipNetwork();
 
 	#ifdef DEBUG
 		printf("\tModel Complete!\n");
@@ -864,7 +1078,7 @@ void GetInstanceOfRandomPlanarGraph_Pk1(_Graph *Graph, double pk1, bool _clip = 
 
 }
 
-void GetInstanceOfRandomPlanarGraph_Wax(_Graph *Graph, double pk1, double alpha) {
+void GetInstanceOfRandomPlanarGraph_Wax(_Graph *Graph, double pk1, double alpha, bool _clip) {
 
 	#ifdef DEBUG
 		printf("Random Model Constrained by Degree Distribution...\n");
@@ -977,7 +1191,7 @@ void GetInstanceOfRandomPlanarGraph_Wax(_Graph *Graph, double pk1, double alpha)
 		}
 	}
 
-	Graph -> ClipNetwork();
+	if ( _clip ) Graph -> ClipNetwork();
 
 	#ifdef DEBUG
 		printf("\tModel Complete!\n");
@@ -986,23 +1200,6 @@ void GetInstanceOfRandomPlanarGraph_Wax(_Graph *Graph, double pk1, double alpha)
 
 }
 
-void RunOptimizationProcess_Wax(_Graph *Graph) {
-
-	#ifdef DEBUG
-		printf("Simple dynamic model...\n");
-	#endif
-
-	int i, j, p, q;
-	Graph -> SwapPairOfEdges(&i,&j,&p,&q);
-
-	//Graph -> ClipNetwork();
-
-	#ifdef DEBUG
-		printf("\tModel Complete!\n");
-	#endif
-
-
-}
 
 /* =================================================================
    MAIN
@@ -1052,6 +1249,9 @@ int main(int argc, char *argv[]) {
 			_mode = 2;
 			n = atoi(argv[i+1]);	
 			sn = atoi(argv[i+2]);
+		}
+		if (!strcmp(argv[i],"-check_planarity")) {
+			_mode = 3;
 		}
 	}
 
@@ -1119,25 +1319,20 @@ int main(int argc, char *argv[]) {
 			for (int net = 0; net <  nreal; net++) {
 
 				if (!strcmp(_Model,"EDG")) {
-					GetInstanceOfRandomPlanarGraph_Edge(&Graph,E);
+					GetInstanceOfRandomPlanarGraph_Edge(&Graph,E,true);
 				}
 				if (!strcmp(_Model,"LGT")) {
-					GetInstanceOfRandomPlanarGraph_Length(&Graph,L);
+					GetInstanceOfRandomPlanarGraph_Length(&Graph,L,true);
 				}
 				if (!strcmp(_Model,"PK1")) {
-					GetInstanceOfRandomPlanarGraph_Pk1(&Graph,pk1);
+					GetInstanceOfRandomPlanarGraph_Pk1(&Graph,pk1,true);
 				}
 				if (!strcmp(_Model,"WAX")) {
-					GetInstanceOfRandomPlanarGraph_Wax(&Graph,pk1,alpha);
+					GetInstanceOfRandomPlanarGraph_Wax(&Graph,pk1,alpha,true);
 				}
 				if (!strcmp(_Model,"WXS")) {
 					Graph.ShuffleCoordinates();
-					GetInstanceOfRandomPlanarGraph_Wax(&Graph,pk1,alpha);
-				}
-				if (!strcmp(_Model,"DYN")) {
-					printf("===============\n");
-					GetInstanceOfRandomPlanarGraph_Pk1(&Graph,pk1,false);
-					RunOptimizationProcess_Wax(&Graph);
+					GetInstanceOfRandomPlanarGraph_Wax(&Graph,pk1,alpha,true);
 				}
 				Graph.GetProperties(M);
 
@@ -1175,7 +1370,7 @@ int main(int argc, char *argv[]) {
 				Graph.GenerateFromScratch(n,sn);
 
 				if (!strcmp(_Model,"WAX")) {
-					GetInstanceOfRandomPlanarGraph_Wax(&Graph,pk1,alpha);
+					GetInstanceOfRandomPlanarGraph_Wax(&Graph,pk1,alpha,true);
 				}
 
 				Graph.GetProperties(M);
@@ -1204,7 +1399,7 @@ int main(int argc, char *argv[]) {
 				Graph.GenerateFromScratch(n,0);
 
 				if (!strcmp(_Model,"WAX")) {
-					GetInstanceOfRandomPlanarGraph_Wax(&Graph,0.75,alpha);
+					GetInstanceOfRandomPlanarGraph_Wax(&Graph,0.75,alpha,true);
 				}
 
 				Graph.GetProperties(M);
@@ -1216,6 +1411,63 @@ int main(int argc, char *argv[]) {
 			}
 
 		}
+
+	} else if (_mode==3) {
+
+		#ifdef DEBUG
+			printf("Checking for planarity...\n");
+		#endif
+
+		// Generating list of files to run
+		char _cmd[256];
+		sprintf(_cmd,"ls %s*.gnet | sed -e 's/.gnet//' > %smitoplanar.files",_RootFolder,_RootFolder);
+		system(_cmd);
+
+		int E, ncr;
+		double L, pk1, total_length;
+
+		char _GNETFile[256];
+		char _GNETList[256];
+		char _RANDName[256];
+
+		// List of files to run
+
+		sprintf(_GNETList,"%smitoplanar.files",_RootFolder);	
+		FILE *f = fopen(_GNETList,"r");
+
+		while (fgets(_GNETFile,256, f) != NULL) {
+			_GNETFile[strcspn(_GNETFile, "\n" )] = '\0';
+
+			printf("%s\n",_GNETFile);
+
+			sprintf(_RANDName,"%s.random",_GNETFile);
+			FILE *fs = fopen(_RANDName,"w");
+			fprintf(fs,"N\tE\tL\t<l>\tNc\tPhi\tNcr\tP1\tP2\tP3\tP4+\n");
+
+			_Graph Graph;
+			Graph.MakeDeepCopy(_GNETFile,&E,&L,&pk1);
+			Graph.SavePolyData("temp.vtk");
+
+			ncr = Graph.GetTotalNumberOfCrosses();
+			Graph.ClipNetwork();
+			Graph.GetProperties(M);
+			fprintf(fs,"%d\t%d\t%1.3f\t%1.3f\t%d\t%1.3f\t%d\t%1.2f\t%1.2f\t%1.2f\t%1.2f\n",(int)M[0],(int)M[1],M[2],M[3],(int)M[4],M[5],ncr,M[6],M[7],M[8],M[9]);
+
+			for (int net = 0; net <  nreal; net++) {
+
+				GetInstanceOfRandomGraph_Edge(&Graph,E,false);
+				Graph.SavePolyData("temp.vtk");
+
+				ncr = Graph.GetTotalNumberOfCrosses();
+				Graph.ClipNetwork();
+				Graph.GetProperties(M);
+				fprintf(fs,"%d\t%d\t%1.3f\t%1.3f\t%d\t%1.3f\t%d\t%1.2f\t%1.2f\t%1.2f\t%1.2f\n",(int)M[0],(int)M[1],M[2],M[3],(int)M[4],M[5],ncr,M[6],M[7],M[8],M[9]);
+
+			}
+
+		}
+
+		fclose(f);
 
 	}
 
