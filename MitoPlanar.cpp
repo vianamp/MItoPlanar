@@ -1215,6 +1215,7 @@ int main(int argc, char *argv[]) {
 	int nreal = 100;
 	bool _save = false;
 	double alpha = 1.0;
+	double pk1 = 0.75;
 	char _Model[4] = {"WAX"};
 	char _RootFolder[256] = {""};
 	char _SaveFolder[256] = {""};
@@ -1235,6 +1236,9 @@ int main(int argc, char *argv[]) {
 		}
 		if (!strcmp(argv[i],"-alpha")) {
 			alpha = atof(argv[i+1]);
+		}
+		if (!strcmp(argv[i],"-pk1")) {
+			pk1 = atof(argv[i+1]);
 		}
 		if (!strcmp(argv[i],"-save")) {
 			sprintf(_SaveFolder,"%s",argv[i+1]);
@@ -1292,7 +1296,7 @@ int main(int argc, char *argv[]) {
 		system(_cmd);
 
 		int E;
-		double L, pk1, total_length;
+		double L, total_length;
 
 		char _GNETFile[256];
 		char _GNETList[256];
@@ -1391,15 +1395,15 @@ int main(int argc, char *argv[]) {
 			printf("Simulation mode (size mode)...\n");
 		#endif
 
-		for (int nnodes = n; n <= 300; n+= sn) {
+		for (int nnodes = n; nnodes <= 300; nnodes += sn) {
 
-			for (int net = 0; net <  nreal; net++) {
+			for (int net = 0; net < nreal; net++) {
 
 				_Graph Graph;
-				Graph.GenerateFromScratch(n,0);
+				Graph.GenerateFromScratch(nnodes,0);
 
 				if (!strcmp(_Model,"WAX")) {
-					GetInstanceOfRandomPlanarGraph_Wax(&Graph,0.75,alpha,true);
+					GetInstanceOfRandomPlanarGraph_Wax(&Graph,pk1,alpha,true);
 				}
 
 				Graph.GetProperties(M);
@@ -1409,6 +1413,8 @@ int main(int argc, char *argv[]) {
 				fclose(s);
 
 			}
+
+			printf("N = %d\n",nnodes);
 
 		}
 
@@ -1442,28 +1448,28 @@ int main(int argc, char *argv[]) {
 
 			sprintf(_RANDName,"%s.random",_GNETFile);
 			FILE *fs = fopen(_RANDName,"w");
-			fprintf(fs,"N\tE\tL\t<l>\tNc\tPhi\tNcr\tP1\tP2\tP3\tP4+\n");
+			fprintf(fs,"Type\tN\tE\tL\t<l>\tNc\tPhi\tNcr\tP1\tP2\tP3\tP4+\n");
 
 			_Graph Graph;
 			Graph.MakeDeepCopy(_GNETFile,&E,&L,&pk1);
-			Graph.SavePolyData("temp.vtk");
 
 			ncr = Graph.GetTotalNumberOfCrosses();
 			Graph.ClipNetwork();
 			Graph.GetProperties(M);
-			fprintf(fs,"%d\t%d\t%1.3f\t%1.3f\t%d\t%1.3f\t%d\t%1.2f\t%1.2f\t%1.2f\t%1.2f\n",(int)M[0],(int)M[1],M[2],M[3],(int)M[4],M[5],ncr,M[6],M[7],M[8],M[9]);
+			fprintf(fs,"Real\t%d\t%d\t%1.3f\t%1.3f\t%d\t%1.3f\t%d\t%1.2f\t%1.2f\t%1.2f\t%1.2f\n",(int)M[0],(int)M[1],M[2],M[3],(int)M[4],M[5],ncr,M[6],M[7],M[8],M[9]);
 
 			for (int net = 0; net <  nreal; net++) {
 
 				GetInstanceOfRandomGraph_Edge(&Graph,E,false);
-				Graph.SavePolyData("temp.vtk");
 
 				ncr = Graph.GetTotalNumberOfCrosses();
 				Graph.ClipNetwork();
 				Graph.GetProperties(M);
-				fprintf(fs,"%d\t%d\t%1.3f\t%1.3f\t%d\t%1.3f\t%d\t%1.2f\t%1.2f\t%1.2f\t%1.2f\n",(int)M[0],(int)M[1],M[2],M[3],(int)M[4],M[5],ncr,M[6],M[7],M[8],M[9]);
+				fprintf(fs,"Rand\t%d\t%d\t%1.3f\t%1.3f\t%d\t%1.3f\t%d\t%1.2f\t%1.2f\t%1.2f\t%1.2f\n",(int)M[0],(int)M[1],M[2],M[3],(int)M[4],M[5],ncr,M[6],M[7],M[8],M[9]);
 
 			}
+
+			fclose(fs);
 
 		}
 
